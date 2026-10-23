@@ -66,7 +66,8 @@
       style: 'https://tiles.openfreemap.org/styles/positron',
       center: [-119.81, 39.35],
       zoom: 9.5,
-      attributionControl: false
+      attributionControl: false,
+      fadeDuration: 0          // labels appear/disappear instantly (no ghosting)
     });
 
     // Controls live at the top so the sheet doesn't cover them
@@ -78,13 +79,24 @@
     }), 'top-right');
 
     // ===== 2. COLORS =====
-    const PIN_GREEN = '#2e7d32';
+    const GROUP_INK = '#1b2a24';   // neutral outline for grouped pins
     const COMFORT_COLORS = {
       'Gentle': '#2e7d32', 'Steady': '#a07800',
       'Moderate': '#c4521f', 'Adventurous': '#b3261e'
     };
-    // "Gentle–Steady" uses the first level's color
-    const colorFor = (comfort) => COMFORT_COLORS[comfort.split('–')[0]] || '#555';
+    // "Gentle–Steady" uses the first level
+    const levelOf = (comfort) => comfort.split('–')[0];
+    const colorFor = (comfort) => COMFORT_COLORS[levelOf(comfort)] || '#555';
+
+    // Same color lookup, written as a MapLibre expression for the map layers
+    const LEVEL_COLOR_EXPR = [
+      'match', ['get', 'level'],
+      'Gentle', COMFORT_COLORS.Gentle,
+      'Steady', COMFORT_COLORS.Steady,
+      'Moderate', COMFORT_COLORS.Moderate,
+      'Adventurous', COMFORT_COLORS.Adventurous,
+      '#555'
+    ];
 
     // ===== 3. APP STATE =====
     let parks = [];        // all park features from parks.geojson
@@ -233,9 +245,14 @@
     // ===== 9. LOAD PARKS + PINS =====
     map.on('load', async () => {
       const data = await (await fetch('parks.geojson')).json();
+
+      // Step 1: Give each park a simple "level" (Gentle, Steady…) for pin colors
+      data.features.forEach((f) => {
+        f.properties.level = levelOf(f.properties.comfort);
+      });
       parks = data.features;
 
-      // Step 1: Add the parks as a clustered source
+      // Step 2: Add the parks as a clustered source
       // Pins within 40px of each other merge into a group until zoom 13
       map.addSource('parks', {
         type: 'geojson',
@@ -245,7 +262,7 @@
         clusterMaxZoom: 13
       });
 
-      // Step 2: Groups — white circle, green outline, bigger for more parks
+      // Step 3: Groups — white circle, neutral outline, bigger for more parks
       map.addLayer({
         id: 'clusters',
         type: 'circle',
@@ -253,13 +270,13 @@
         filter: ['has', 'point_count'],
         paint: {
           'circle-color': '#ffffff',
-          'circle-stroke-color': PIN_GREEN,
+          'circle-stroke-color': GROUP_INK,
           'circle-stroke-width': 3,
           'circle-radius': ['step', ['get', 'point_count'], 15, 5, 19, 10, 23]
         }
       });
 
-      // Step 3: The park count in the center of each group
+      // Step 4: The park count in the center of each group
       map.addLayer({
         id: 'cluster-count',
         type: 'symbol',
@@ -268,12 +285,14 @@
         layout: {
           'text-field': ['get', 'point_count'],
           'text-font': ['Noto Sans Bold'],
-          'text-size': 14
+          'text-size': 14,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true
         },
-        paint: { 'text-color': PIN_GREEN }
+        paint: { 'text-color': GROUP_INK }
       });
 
-      // Step 4: Single parks — smaller white circle, green outline
+      // Step 5: Single parks — white circle, outline colored by comfort level
       map.addLayer({
         id: 'park-points',
         type: 'circle',
@@ -281,27 +300,35 @@
         filter: ['!', ['has', 'point_count']],
         paint: {
           'circle-color': '#ffffff',
-          'circle-stroke-color': PIN_GREEN,
+          'circle-stroke-color': LEVEL_COLOR_EXPR,
           'circle-stroke-width': 3,
           'circle-radius': 8
         }
       });
 
-      // Step 5: The featured park — solid green so it stands out
+      // Step 6: The featured park — filled with its comfort color
       map.addLayer({
         id: 'park-selected',
         type: 'circle',
         source: 'parks',
         filter: ['==', ['get', 'id'], -1],
         paint: {
-          'circle-color': PIN_GREEN,
+          'circle-color': LEVEL_COLOR_EXPR,
           'circle-stroke-color': '#ffffff',
           'circle-stroke-width': 3,
           'circle-radius': 11
         }
       });
 
-      // Step 6: Tap a group -> zoom in until it splits apart
+      // Step 7: Hide group numbers while zooming so they don't linger as artifacts
+      map.on('zoomstart', () => {
+        map.setLayoutProperty('cluster-count', 'visibility', 'none');
+      });
+      map.on('zoomend', () => {
+        map.setLayoutProperty('cluster-count', 'visibility', 'visible');
+      });
+
+      // Step 8: Tap a group -> zoom in until it splits apart
       map.on('click', 'clusters', async (e) => {
         const feature = e.features[0];
         const zoom = await map.getSource('parks')
@@ -309,18 +336,18 @@
         map.easeTo({ center: feature.geometry.coordinates, zoom: zoom });
       });
 
-      // Step 7: Tap a single park -> feature it in the sheet
+      // Step 9: Tap a single park -> feature it in the sheet
       map.on('click', 'park-points', (e) => {
         selectPark(e.features[0].properties.id, false);
       });
 
-      // Step 8: Pointer cursor on desktop
+      // Step 10: Pointer cursor on desktop
       for (const layer of ['clusters', 'park-points']) {
         map.on('mouseenter', layer, () => map.getCanvas().style.cursor = 'pointer');
         map.on('mouseleave', layer, () => map.getCanvas().style.cursor = '');
       }
 
-      // Step 9: Fit all parks, leaving room for the sheet at the bottom
+      // Step 11: Fit all parks, leaving room for the sheet at the bottom
       const bounds = new maplibregl.LngLatBounds();
       parks.forEach((f) => bounds.extend(f.geometry.coordinates));
       map.fitBounds(bounds, {
