@@ -41,9 +41,11 @@
     .chip { font-size:12px; background:#e9e6de; border-radius:10px; padding:3px 8px; }
     .note { font-size:12px; margin-top:6px; }
     .pending { color:#b3261e; }
-    .actions { display:flex; gap:20px; margin-top:8px; }
-    .dir, .details-btn { font-size:14px; font-weight:600; color:var(--green); text-decoration:none;
-                         background:none; border:none; padding:0; cursor:pointer; font-family:inherit; }
+    .actions { display:flex; align-items:center; gap:16px; margin-top:10px; }
+    .details-btn { font-size:14px; font-weight:600; font-family:inherit; color:#fff;
+                   background:var(--green); border:none; border-radius:8px;
+                   padding:8px 18px; cursor:pointer; }
+    .dir { font-size:14px; font-weight:600; color:var(--green); text-decoration:none; }
     .row { border-bottom:1px solid var(--line); cursor:pointer; }
     .row.selected { background:#ecf3ec; margin:0 -16px; padding:0 16px; }
     .empty { padding:12px 0; color:var(--muted); font-size:14px; }
@@ -219,8 +221,8 @@
             ${p.verified ? '' : '<div class="note pending">Newly added — pending field verification</div>'}
             ${p.fitness_court ? '<div class="note">Has a free outdoor Fitness Court</div>' : ''}
             <div class="actions">
-              <a class="dir" target="_blank" href="${directionsURL(f)}">Directions →</a>
               <button class="details-btn" data-details="${p.id}">Details</button>
+              <a class="dir" target="_blank" href="${directionsURL(f)}">Directions →</a>
             </div>`;
       }
       return html + `</div></div>`;
