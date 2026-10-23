@@ -31,8 +31,7 @@
 
     /* ===== PARK CARDS ===== */
     .card { display:flex; gap:12px; padding:12px 0; }
-    .badge { flex:none; width:28px; height:28px; border-radius:50%; color:#fff;
-             font-weight:700; font-size:13px; display:grid; place-items:center; }
+    .dot { flex:none; width:12px; height:12px; border-radius:50%; margin-top:5px; }
     .name { font-weight:600; font-size:15px; cursor:pointer;
             text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; }
     .meta { font-size:13px; color:var(--muted); margin-top:2px; }
@@ -152,7 +151,7 @@
 
     // ===== 3. APP STATE =====
     let parks = [];        // all park features from parks.geojson
-    let selectedId = null; // the featured park
+    let selectedId = null; // the featured park (ids are internal only, never shown)
 
     // ===== 4. BOTTOM SHEET: OPEN / CLOSE / DRAG =====
     const sheet = document.getElementById('sheet');
@@ -205,7 +204,6 @@
       const p = f.properties;
       let html = `
         <div class="card">
-          <div class="badge" style="background:${colorFor(p.comfort)}">${p.id}</div>
           <div>
             <div class="name" data-details="${p.id}">${p.name}</div>
             <div class="meta">${p.comfort} · ${p.surface}</div>
