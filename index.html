@@ -3,51 +3,268 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#f5f3ef" />
+  <meta name="theme-color" content="#f7f5f0" />
   <title>Healing Steps</title>
 
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 
   <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      height: 100%;
-      overflow: hidden;
-      font-family: system-ui, -apple-system, sans-serif;
-    }
-    #map {
-      position: fixed;
-      inset: 0;
-      height: 100dvh;
-    }
-    .maplibregl-ctrl-group button {
-      width: 40px;
-      height: 40px;
-    }
+    /* ===== BASE ===== */
+    :root { --ink:#1b2a24; --muted:#6b7570; --bg:#f7f5f0; --line:#e3e0d8; }
+    html, body { margin:0; height:100%; overflow:hidden; color:var(--ink);
+                 font-family:system-ui, -apple-system, sans-serif; }
+    #map { position:fixed; inset:0; height:100dvh; }
+    .maplibregl-ctrl-group button { width:40px; height:40px; }
+
+    /* ===== BOTTOM SHEET ===== */
+    #sheet { position:fixed; left:0; right:0; bottom:0; height:85dvh; z-index:10;
+             background:var(--bg); border-radius:16px 16px 0 0;
+             box-shadow:0 -4px 20px rgba(0,0,0,.15);
+             display:flex; flex-direction:column; transition:transform .25s ease; }
+    #sheet.dragging { transition:none; }
+    #sheet-header { touch-action:none; padding:8px 16px 4px; cursor:grab; }
+    .handle { width:40px; height:5px; border-radius:3px; background:#c9c5bb; margin:0 auto 8px; }
+    #count { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    #list { flex:1; overflow-y:auto; border-top:1px solid var(--line);
+            padding:0 16px calc(16px + env(safe-area-inset-bottom)); }
+
+    /* ===== PARK CARDS ===== */
+    .card { display:flex; gap:12px; padding:12px 0; }
+    .badge { flex:none; width:28px; height:28px; border-radius:50%; color:#fff;
+             font-weight:700; font-size:13px; display:grid; place-items:center; }
+    .name { font-weight:600; font-size:15px; }
+    .meta { font-size:13px; color:var(--muted); margin-top:2px; }
+    .tip { font-size:13px; font-style:italic; margin-top:4px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .chip { font-size:12px; background:#e9e6de; border-radius:10px; padding:3px 8px; }
+    .note { font-size:12px; margin-top:6px; }
+    .pending { color:#b3261e; }
+    .dir { display:inline-block; margin-top:8px; font-size:14px; font-weight:600;
+           color:#2e7d32; text-decoration:none; }
+    .row { border-bottom:1px solid var(--line); cursor:pointer; }
+    .row.selected { background:#ecf3ec; margin:0 -16px; padding:0 16px; }
+    .empty { padding:12px 0; color:var(--muted); font-size:14px; }
+
+    /* Selected pin gets bigger */
+    .maplibregl-marker.selected { z-index:5; }
+    .maplibregl-marker.selected svg { transform:scale(1.35); transform-origin:bottom center; }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
+  <div id="sheet">
+    <div id="sheet-header">
+      <div class="handle"></div>
+      <div id="count">Loading…</div>
+      <div id="featured"></div>
+    </div>
+    <div id="list"></div>
+  </div>
+
   <script>
+    // ===== 1. MAP SETUP =====
     const map = new maplibregl.Map({
       container: 'map',
-      style: 'https://tiles.openfreemap.org/styles/bright',
+      style: 'https://tiles.openfreemap.org/styles/positron',
       center: [-119.81, 39.35],
       zoom: 9.5,
-      attributionControl: { compact: true }
+      attributionControl: false
     });
 
+    // Controls live at the top so the sheet doesn't cover them
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
     map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
-
     map.addControl(new maplibregl.GeolocateControl({
       positionOptions: { enableHighAccuracy: true },
       trackUserLocation: true
     }), 'top-right');
 
-    map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
+    // ===== 2. COMFORT COLORS =====
+    const COMFORT_COLORS = {
+      'Gentle': '#2e7d32', 'Steady': '#a07800',
+      'Moderate': '#c4521f', 'Adventurous': '#b3261e'
+    };
+    // "Gentle–Steady" uses the first level's color
+    const colorFor = (comfort) => COMFORT_COLORS[comfort.split('–')[0]] || '#555';
+
+    // ===== 3. APP STATE =====
+    let parks = [];        // all park features from parks.geojson
+    const markers = {};    // park id -> map marker
+    let selectedId = null; // the featured park
+
+    // ===== 4. BOTTOM SHEET: OPEN / CLOSE / DRAG =====
+    const sheet = document.getElementById('sheet');
+    const header = document.getElementById('sheet-header');
+    let expanded = false;
+
+    // How far down the sheet slides when collapsed (only the header peeks out)
+    const collapsedOffset = () => sheet.offsetHeight - header.offsetHeight;
+
+    function setSheet(open) {
+      expanded = open;
+      sheet.style.transform = `translateY(${open ? 0 : collapsedOffset()}px)`;
+      if (!open) document.getElementById('list').scrollTop = 0;
+    }
+
+    let startY = null, startOffset = 0, moved = false;
+
+    header.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('a')) return;            // let the Directions link work
+      startY = e.clientY;
+      startOffset = expanded ? 0 : collapsedOffset();
+      moved = false;
+      sheet.classList.add('dragging');
+      header.setPointerCapture(e.pointerId);
+    });
+
+    header.addEventListener('pointermove', (e) => {
+      if (startY === null) return;
+      const dy = e.clientY - startY;
+      if (Math.abs(dy) > 5) moved = true;
+      const y = Math.min(Math.max(startOffset + dy, 0), collapsedOffset());
+      sheet.style.transform = `translateY(${y}px)`;
+    });
+
+    function endDrag(e) {
+      if (startY === null) return;
+      sheet.classList.remove('dragging');
+      const dy = e.clientY - startY;
+      startY = null;
+      if (!moved) return setSheet(!expanded);       // a tap toggles the sheet
+      setSheet(dy < -40 ? true : dy > 40 ? false : expanded);
+    }
+    header.addEventListener('pointerup', endDrag);
+    header.addEventListener('pointercancel', endDrag);
+    window.addEventListener('resize', () => setSheet(expanded));
+
+    // ===== 5. PARK CARD HTML =====
+    function cardHTML(f, full) {
+      const p = f.properties;
+      const [lng, lat] = f.geometry.coordinates;
+      let html = `
+        <div class="card">
+          <div class="badge" style="background:${colorFor(p.comfort)}">${p.id}</div>
+          <div>
+            <div class="name">${p.name}</div>
+            <div class="meta">${p.comfort} · ${p.surface}</div>
+            <div class="tip">${p.tip}</div>`;
+      if (full) {
+        html += `
+            <div class="chips">
+              <span class="chip">Restrooms: ${p.restrooms}</span>
+              <span class="chip">Benches: ${p.benches}</span>
+              <span class="chip">Shade: ${p.shade}</span>
+              <span class="chip">Parking: ${p.parking}</span>
+            </div>
+            ${p.verified ? '' : '<div class="note pending">Newly added — pending field verification</div>'}
+            ${p.fitness_court ? '<div class="note">Has a free outdoor Fitness Court</div>' : ''}
+            <a class="dir" target="_blank"
+               href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}">Directions →</a>`;
+      }
+      return html + `</div></div>`;
+    }
+
+    // ===== 6. WHICH PARKS ARE IN VIEW =====
+    // Parks inside the map frame, closest to the map center first
+    function visibleParks() {
+      const bounds = map.getBounds();
+      const c = map.getCenter();
+      const k = Math.cos(c.lat * Math.PI / 180);   // squash longitude so distances are fair
+      return parks
+        .filter((f) => bounds.contains(f.geometry.coordinates))
+        .map((f) => {
+          const [x, y] = f.geometry.coordinates;
+          return { f, d: ((x - c.lng) * k) ** 2 + (y - c.lat) ** 2 };
+        })
+        .sort((a, b) => a.d - b.d)
+        .map((o) => o.f);
+    }
+
+    // ===== 7. DRAW THE SHEET + HIGHLIGHT THE PIN =====
+    function render() {
+      const vis = visibleParks();
+
+      // Keep the current pick while it's on screen; otherwise feature the closest park
+      if (!vis.some((f) => f.properties.id === selectedId)) {
+        selectedId = vis.length ? vis[0].properties.id : null;
+      }
+
+      for (const id in markers) {
+        markers[id].getElement().classList.toggle('selected', Number(id) === selectedId);
+      }
+
+      document.getElementById('count').textContent =
+        vis.length === 1 ? '1 place in view' : `${vis.length} places in view`;
+
+      const sel = parks.find((f) => f.properties.id === selectedId);
+      document.getElementById('featured').innerHTML = sel
+        ? cardHTML(sel, true)
+        : '<div class="empty">No places in view — zoom out or move the map.</div>';
+
+      document.getElementById('list').innerHTML = vis.map((f) => `
+        <div class="row ${f.properties.id === selectedId ? 'selected' : ''}" data-id="${f.properties.id}">
+          ${cardHTML(f, false)}
+        </div>`).join('');
+
+      setSheet(expanded);   // header height may have changed
+    }
+
+    // ===== 8. SELECTING A PARK =====
+    function selectPark(id, fly) {
+      selectedId = id;
+      setSheet(false);
+      if (fly) {
+        const f = parks.find((p) => p.properties.id === id);
+        map.flyTo({
+          center: f.geometry.coordinates,
+          zoom: Math.max(map.getZoom(), 14),
+          offset: [0, -header.offsetHeight / 2]   // keep the pin above the sheet
+        });                                       // render() runs when the move ends
+      } else {
+        render();
+      }
+    }
+
+    // Tap a park in the list -> fly to it
+    document.getElementById('list').addEventListener('click', (e) => {
+      const row = e.target.closest('.row');
+      if (row) selectPark(Number(row.dataset.id), true);
+    });
+
+    // ===== 9. LOAD PARKS + PINS =====
+    map.on('load', async () => {
+      const data = await (await fetch('parks.geojson')).json();
+      parks = data.features;
+      const bounds = new maplibregl.LngLatBounds();
+
+      parks.forEach((f) => {
+        const id = f.properties.id;
+        const marker = new maplibregl.Marker({ color: colorFor(f.properties.comfort) })
+          .setLngLat(f.geometry.coordinates)
+          .addTo(map);
+        marker.getElement().style.cursor = 'pointer';
+        marker.getElement().addEventListener('click', (e) => {
+          e.stopPropagation();
+          selectPark(id, false);
+        });
+        markers[id] = marker;
+        bounds.extend(f.geometry.coordinates);
+      });
+
+      // Fit all parks, leaving room for the sheet at the bottom
+      map.fitBounds(bounds, {
+        padding: { top: 60, left: 40, right: 60, bottom: header.offsetHeight + 40 },
+        animate: false
+      });
+      render();
+    });
+
+    // Refresh the list whenever the map stops moving
+    map.on('moveend', render);
+
+    setSheet(false);
   </script>
 </body>
 </html>
