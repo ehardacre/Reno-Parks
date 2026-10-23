@@ -11,7 +11,7 @@
 
   <style>
     /* ===== BASE ===== */
-    :root { --ink:#1b2a24; --muted:#6b7570; --bg:#f7f5f0; --line:#e3e0d8; }
+    :root { --ink:#1b2a24; --muted:#6b7570; --bg:#f7f5f0; --line:#e3e0d8; --green:#2e7d32; }
     html, body { margin:0; height:100%; overflow:hidden; color:var(--ink);
                  font-family:system-ui, -apple-system, sans-serif; }
     #map { position:fixed; inset:0; height:100dvh; }
@@ -33,18 +33,53 @@
     .card { display:flex; gap:12px; padding:12px 0; }
     .badge { flex:none; width:28px; height:28px; border-radius:50%; color:#fff;
              font-weight:700; font-size:13px; display:grid; place-items:center; }
-    .name { font-weight:600; font-size:15px; }
+    .name { font-weight:600; font-size:15px; cursor:pointer;
+            text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; }
     .meta { font-size:13px; color:var(--muted); margin-top:2px; }
     .tip { font-size:13px; font-style:italic; margin-top:4px; }
     .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
     .chip { font-size:12px; background:#e9e6de; border-radius:10px; padding:3px 8px; }
     .note { font-size:12px; margin-top:6px; }
     .pending { color:#b3261e; }
-    .dir { display:inline-block; margin-top:8px; font-size:14px; font-weight:600;
-           color:#2e7d32; text-decoration:none; }
+    .actions { display:flex; gap:20px; margin-top:8px; }
+    .dir, .details-btn { font-size:14px; font-weight:600; color:var(--green); text-decoration:none;
+                         background:none; border:none; padding:0; cursor:pointer; font-family:inherit; }
     .row { border-bottom:1px solid var(--line); cursor:pointer; }
     .row.selected { background:#ecf3ec; margin:0 -16px; padding:0 16px; }
     .empty { padding:12px 0; color:var(--muted); font-size:14px; }
+
+    /* ===== FULL-SCREEN DETAILS PAGE ===== */
+    #details { position:fixed; inset:0; z-index:20; background:var(--bg); overflow-y:auto;
+               transform:translateY(100%); transition:transform .25s ease; }
+    #details.open { transform:none; }
+    .d-top { position:sticky; top:0; z-index:1; background:var(--bg);
+             padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
+             border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+    .back { width:40px; height:40px; border:none; background:none; font-size:24px;
+            cursor:pointer; color:var(--ink); }
+    .d-top-title { font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .d-body { padding:20px 16px calc(32px + env(safe-area-inset-bottom)); max-width:640px; margin:0 auto; }
+    .d-body h1 { font-size:26px; line-height:1.2; margin:0 0 4px; }
+    .d-sub { color:var(--muted); font-size:14px; }
+    .pill { display:inline-block; color:#fff; font-weight:600; font-size:13px;
+            border-radius:12px; padding:4px 12px; margin-top:14px; }
+    .d-section { margin-top:24px; }
+    .d-section h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em;
+                    color:var(--muted); margin:0 0 8px; }
+    .d-walk { font-size:17px; line-height:1.5; font-style:italic; }
+    .d-level { font-size:14px; line-height:1.5; margin:4px 0; }
+    .facts { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .fact { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+    .fact.wide { grid-column:1 / -1; }
+    .fact-label { font-size:12px; color:var(--muted); }
+    .fact-value { font-size:15px; font-weight:600; margin-top:2px; }
+    .d-note { background:#fff; border-left:4px solid var(--green); border-radius:6px;
+              padding:10px 12px; font-size:14px; margin-top:10px; }
+    .d-note.warn { border-color:#b3261e; }
+    .btn-dir { display:block; text-align:center; background:var(--green); color:#fff;
+               font-weight:600; font-size:16px; text-decoration:none;
+               border-radius:12px; padding:14px; margin-top:24px; }
+    .d-fine { font-size:12px; color:var(--muted); margin-top:16px; text-align:center; }
   </style>
 </head>
 <body>
@@ -59,11 +94,13 @@
     <div id="list"></div>
   </div>
 
+  <div id="details" aria-hidden="true"></div>
+
   <script>
     // ===== 1. MAP SETUP =====
     const map = new maplibregl.Map({
       container: 'map',
-      style: 'https://tiles.openfreemap.org/styles/bright',
+      style: 'https://tiles.openfreemap.org/styles/positron',
       center: [-119.81, 39.35],
       zoom: 9.5,
       attributionControl: false,
@@ -78,12 +115,19 @@
       trackUserLocation: true
     }), 'top-right');
 
-    // ===== 2. COLORS =====
+    // ===== 2. COLORS + COMFORT LEVELS =====
     const GROUP_INK = '#1b2a24';   // dark text for the group count
     const GROUP_GREY = '#9a9a9a';  // grey outline for grouped pins
     const COMFORT_COLORS = {
       'Gentle': '#2e7d32', 'Steady': '#a07800',
       'Moderate': '#c4521f', 'Adventurous': '#b3261e'
+    };
+    // What each rating means (from the printed guide)
+    const COMFORT_MEANING = {
+      'Gentle': 'Paved or firm surface, mostly flat, short route.',
+      'Steady': 'Mostly paved or firm; possible uneven spots or limited rest points.',
+      'Moderate': 'Dirt or gravel, mild slopes, longer distance.',
+      'Adventurous': 'Steeper, longer, or variable surface.'
     };
     // "Gentle–Steady" uses the first level
     const levelOf = (comfort) => comfort.split('–')[0];
@@ -98,6 +142,11 @@
       'Adventurous', COMFORT_COLORS.Adventurous,
       '#555'
     ];
+
+    const directionsURL = (f) => {
+      const [lng, lat] = f.geometry.coordinates;
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    };
 
     // ===== 3. APP STATE =====
     let parks = [];        // all park features from parks.geojson
@@ -120,7 +169,8 @@
     let startY = null, startOffset = 0, moved = false;
 
     header.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('a')) return;            // let the Directions link work
+      // Let links, buttons and park names handle their own taps
+      if (e.target.closest('a, button, .name')) return;
       startY = e.clientY;
       startOffset = expanded ? 0 : collapsedOffset();
       moved = false;
@@ -151,12 +201,11 @@
     // ===== 5. PARK CARD HTML =====
     function cardHTML(f, full) {
       const p = f.properties;
-      const [lng, lat] = f.geometry.coordinates;
       let html = `
         <div class="card">
           <div class="badge" style="background:${colorFor(p.comfort)}">${p.id}</div>
           <div>
-            <div class="name">${p.name}</div>
+            <div class="name" data-details="${p.id}">${p.name}</div>
             <div class="meta">${p.comfort} · ${p.surface}</div>
             <div class="tip">${p.tip}</div>`;
       if (full) {
@@ -169,8 +218,10 @@
             </div>
             ${p.verified ? '' : '<div class="note pending">Newly added — pending field verification</div>'}
             ${p.fitness_court ? '<div class="note">Has a free outdoor Fitness Court</div>' : ''}
-            <a class="dir" target="_blank"
-               href="https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}">Directions →</a>`;
+            <div class="actions">
+              <a class="dir" target="_blank" href="${directionsURL(f)}">Directions →</a>
+              <button class="details-btn" data-details="${p.id}">Details</button>
+            </div>`;
       }
       return html + `</div></div>`;
     }
@@ -237,16 +288,96 @@
       }
     }
 
-    // Tap a park in the list -> fly to it
+    // ===== 9. FULL-SCREEN DETAILS PAGE =====
+    const details = document.getElementById('details');
+
+    function detailsHTML(f) {
+      const p = f.properties;
+      const levels = p.comfort.split('–');   // "Gentle–Steady" -> both meanings
+      const fact = (label, value, wide) => `
+        <div class="fact ${wide ? 'wide' : ''}">
+          <div class="fact-label">${label}</div>
+          <div class="fact-value">${value}</div>
+        </div>`;
+
+      return `
+        <div class="d-top">
+          <button class="back" aria-label="Back to map">←</button>
+          <div class="d-top-title">${p.name}</div>
+        </div>
+        <div class="d-body">
+          <h1>${p.name}</h1>
+          <div class="d-sub">${p.manager} · ${p.region}</div>
+          <span class="pill" style="background:${colorFor(p.comfort)}">${p.comfort}</span>
+
+          <div class="d-section">
+            <h2>Suggested walk</h2>
+            <div class="d-walk">${p.tip}</div>
+          </div>
+
+          <div class="d-section">
+            <h2>What ${p.comfort} means</h2>
+            ${levels.map((l) => `<p class="d-level"><b>${l}:</b> ${COMFORT_MEANING[l] || ''}</p>`).join('')}
+          </div>
+
+          <div class="d-section">
+            <h2>At this location</h2>
+            <div class="facts">
+              ${fact('Surface', p.surface, true)}
+              ${fact('Restrooms', p.restrooms)}
+              ${fact('Benches', p.benches)}
+              ${fact('Shade', p.shade)}
+              ${fact('Comfort', p.comfort)}
+              ${fact('Parking', p.parking, true)}
+            </div>
+            ${p.verified ? '' : '<div class="d-note warn">Newly added — pending field verification. Details may change.</div>'}
+            ${p.fitness_court ? '<div class="d-note">Has a free, on-site Renown Health / National Fitness Campaign outdoor Fitness Court — a separate, more vigorous strength-training option.</div>' : ''}
+          </div>
+
+          <a class="btn-dir" target="_blank" href="${directionsURL(f)}">Get directions to parking</a>
+          <p class="d-fine">Verify current conditions before a visit.</p>
+        </div>`;
+    }
+
+    function openDetails(id) {
+      const f = parks.find((p) => p.properties.id === id);
+      if (!f) return;
+      details.innerHTML = detailsHTML(f);
+      details.scrollTop = 0;
+      details.classList.add('open');
+      details.setAttribute('aria-hidden', 'false');
+      history.pushState({ details: id }, '');   // so the phone's back gesture closes it
+    }
+
+    function hideDetails() {
+      details.classList.remove('open');
+      details.setAttribute('aria-hidden', 'true');
+    }
+
+    // Back arrow -> go back in history (which closes the page via popstate)
+    details.addEventListener('click', (e) => {
+      if (e.target.closest('.back')) history.back();
+    });
+    window.addEventListener('popstate', hideDetails);
+
+    // ===== 10. TAPS IN THE SHEET =====
+    // Park name or Details button -> details page
+    document.getElementById('featured').addEventListener('click', (e) => {
+      const t = e.target.closest('[data-details]');
+      if (t) openDetails(Number(t.dataset.details));
+    });
+
+    // In the list: name -> details page; anywhere else on the row -> fly to the park
     document.getElementById('list').addEventListener('click', (e) => {
+      const t = e.target.closest('[data-details]');
+      if (t) return openDetails(Number(t.dataset.details));
       const row = e.target.closest('.row');
       if (row) selectPark(Number(row.dataset.id), true);
     });
 
-    // ===== 9. LOAD PARKS + PINS =====
+    // ===== 11. LOAD PARKS + PINS =====
     map.on('load', async () => {
-            const data = await (await fetch('parks.geojson', { cache: 'no-cache' })).json();
-
+      const data = await (await fetch('parks.geojson', { cache: 'no-cache' })).json();
 
       // Step 1: Give each park a simple "level" (Gentle, Steady…) for pin colors
       data.features.forEach((f) => {
