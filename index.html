@@ -1,39 +1,53 @@
-
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Reno Parks</title>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f5f3ef" />
+  <title>Healing Steps</title>
 
-  <link rel="stylesheet"
-    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
 
   <style>
-    html, body, #map {
-      width: 100%;
-      height: 100%;
+    html, body {
       margin: 0;
       padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+    #map {
+      position: fixed;
+      inset: 0;
+      height: 100dvh;
+    }
+    .maplibregl-ctrl-group button {
+      width: 40px;
+      height: 40px;
     }
   </style>
 </head>
 <body>
   <div id="map"></div>
 
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
-    const map = L.map('map').setView(
-      [39.5296, -119.8143], 12
-    );
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://tiles.openfreemap.org/styles/positron',
+      center: [-119.81, 39.35],
+      zoom: 9.5,
+      attributionControl: { compact: true }
+    });
 
-    L.tileLayer(
-      'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-      {
-        attribution: '© OpenStreetMap contributors',
-        maxZoom: 19
-      }
-    ).addTo(map);
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+
+    map.addControl(new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true
+    }), 'top-right');
+
+    map.addControl(new maplibregl.ScaleControl({ unit: 'imperial' }), 'bottom-left');
   </script>
 </body>
 </html>
