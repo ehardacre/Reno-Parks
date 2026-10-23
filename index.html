@@ -245,7 +245,8 @@
 
     // ===== 9. LOAD PARKS + PINS =====
     map.on('load', async () => {
-      const data = await (await fetch('parks.geojson')).json();
+            const data = await (await fetch('parks.geojson', { cache: 'no-cache' })).json();
+
 
       // Step 1: Give each park a simple "level" (Gentle, Steady…) for pin colors
       data.features.forEach((f) => {
