@@ -79,7 +79,8 @@
     }), 'top-right');
 
     // ===== 2. COLORS =====
-    const GROUP_INK = '#1b2a24';   // neutral outline for grouped pins
+    const GROUP_INK = '#1b2a24';   // dark text for the group count
+    const GROUP_GREY = '#9a9a9a';  // grey outline for grouped pins
     const COMFORT_COLORS = {
       'Gentle': '#2e7d32', 'Steady': '#a07800',
       'Moderate': '#c4521f', 'Adventurous': '#b3261e'
@@ -262,7 +263,7 @@
         clusterMaxZoom: 13
       });
 
-      // Step 3: Groups — white circle, neutral outline, bigger for more parks
+      // Step 3: Groups — white circle, grey outline, bigger for more parks
       map.addLayer({
         id: 'clusters',
         type: 'circle',
@@ -270,7 +271,7 @@
         filter: ['has', 'point_count'],
         paint: {
           'circle-color': '#ffffff',
-          'circle-stroke-color': GROUP_INK,
+          'circle-stroke-color': GROUP_GREY,
           'circle-stroke-width': 3,
           'circle-radius': ['step', ['get', 'point_count'], 15, 5, 19, 10, 23]
         }
