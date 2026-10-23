@@ -45,10 +45,6 @@
     .row { border-bottom:1px solid var(--line); cursor:pointer; }
     .row.selected { background:#ecf3ec; margin:0 -16px; padding:0 16px; }
     .empty { padding:12px 0; color:var(--muted); font-size:14px; }
-
-    /* Selected pin gets bigger */
-    .maplibregl-marker.selected { z-index:5; }
-    .maplibregl-marker.selected svg { transform:scale(1.35); transform-origin:bottom center; }
   </style>
 </head>
 <body>
@@ -67,7 +63,7 @@
     // ===== 1. MAP SETUP =====
     const map = new maplibregl.Map({
       container: 'map',
-      style: 'https://tiles.openfreemap.org/styles/bright',
+      style: 'https://tiles.openfreemap.org/styles/positron',
       center: [-119.81, 39.35],
       zoom: 9.5,
       attributionControl: false
@@ -81,7 +77,8 @@
       trackUserLocation: true
     }), 'top-right');
 
-    // ===== 2. COMFORT COLORS =====
+    // ===== 2. COLORS =====
+    const PIN_GREEN = '#2e7d32';
     const COMFORT_COLORS = {
       'Gentle': '#2e7d32', 'Steady': '#a07800',
       'Moderate': '#c4521f', 'Adventurous': '#b3261e'
@@ -91,7 +88,6 @@
 
     // ===== 3. APP STATE =====
     let parks = [];        // all park features from parks.geojson
-    const markers = {};    // park id -> map marker
     let selectedId = null; // the featured park
 
     // ===== 4. BOTTOM SHEET: OPEN / CLOSE / DRAG =====
@@ -191,8 +187,9 @@
         selectedId = vis.length ? vis[0].properties.id : null;
       }
 
-      for (const id in markers) {
-        markers[id].getElement().classList.toggle('selected', Number(id) === selectedId);
+      // Highlight the featured park's pin
+      if (map.getLayer('park-selected')) {
+        map.setFilter('park-selected', ['==', ['get', 'id'], selectedId ?? -1]);
       }
 
       document.getElementById('count').textContent =
@@ -237,23 +234,95 @@
     map.on('load', async () => {
       const data = await (await fetch('parks.geojson')).json();
       parks = data.features;
-      const bounds = new maplibregl.LngLatBounds();
 
-      parks.forEach((f) => {
-        const id = f.properties.id;
-        const marker = new maplibregl.Marker({ color: colorFor(f.properties.comfort) })
-          .setLngLat(f.geometry.coordinates)
-          .addTo(map);
-        marker.getElement().style.cursor = 'pointer';
-        marker.getElement().addEventListener('click', (e) => {
-          e.stopPropagation();
-          selectPark(id, false);
-        });
-        markers[id] = marker;
-        bounds.extend(f.geometry.coordinates);
+      // Step 1: Add the parks as a clustered source
+      // Pins within 40px of each other merge into a group until zoom 13
+      map.addSource('parks', {
+        type: 'geojson',
+        data: data,
+        cluster: true,
+        clusterRadius: 40,
+        clusterMaxZoom: 13
       });
 
-      // Fit all parks, leaving room for the sheet at the bottom
+      // Step 2: Groups — white circle, green outline, bigger for more parks
+      map.addLayer({
+        id: 'clusters',
+        type: 'circle',
+        source: 'parks',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#ffffff',
+          'circle-stroke-color': PIN_GREEN,
+          'circle-stroke-width': 3,
+          'circle-radius': ['step', ['get', 'point_count'], 15, 5, 19, 10, 23]
+        }
+      });
+
+      // Step 3: The park count in the center of each group
+      map.addLayer({
+        id: 'cluster-count',
+        type: 'symbol',
+        source: 'parks',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': ['get', 'point_count'],
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 14
+        },
+        paint: { 'text-color': PIN_GREEN }
+      });
+
+      // Step 4: Single parks — smaller white circle, green outline
+      map.addLayer({
+        id: 'park-points',
+        type: 'circle',
+        source: 'parks',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-color': '#ffffff',
+          'circle-stroke-color': PIN_GREEN,
+          'circle-stroke-width': 3,
+          'circle-radius': 8
+        }
+      });
+
+      // Step 5: The featured park — solid green so it stands out
+      map.addLayer({
+        id: 'park-selected',
+        type: 'circle',
+        source: 'parks',
+        filter: ['==', ['get', 'id'], -1],
+        paint: {
+          'circle-color': PIN_GREEN,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 3,
+          'circle-radius': 11
+        }
+      });
+
+      // Step 6: Tap a group -> zoom in until it splits apart
+      map.on('click', 'clusters', async (e) => {
+        const feature = e.features[0];
+        const zoom = await map.getSource('parks')
+          .getClusterExpansionZoom(feature.properties.cluster_id);
+        map.easeTo({ center: feature.geometry.coordinates, zoom: zoom });
+      });
+
+      // Step 7: Tap a single park -> feature it in the sheet
+      map.on('click', 'park-points', (e) => {
+        selectPark(e.features[0].properties.id, false);
+      });
+
+      // Step 8: Pointer cursor on desktop
+      for (const layer of ['clusters', 'park-points']) {
+        map.on('mouseenter', layer, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', layer, () => map.getCanvas().style.cursor = '');
+      }
+
+      // Step 9: Fit all parks, leaving room for the sheet at the bottom
+      const bounds = new maplibregl.LngLatBounds();
+      parks.forEach((f) => bounds.extend(f.geometry.coordinates));
       map.fitBounds(bounds, {
         padding: { top: 60, left: 40, right: 60, bottom: header.offsetHeight + 40 },
         animate: false
