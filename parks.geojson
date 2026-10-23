@@ -1,0 +1,88 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8350, 39.5224] },
+      "properties": { "id": 1, "name": "Idlewild Park", "manager": "City of Reno Parks & Recreation", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Loop the rose garden and the duck ponds, then find a river bench.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8120, 39.4990] },
+      "properties": { "id": 2, "name": "Virginia Lake Park", "manager": "City of Reno Parks & Recreation", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Walk the bench-lined east shore to the halfway point and back.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.7875, 39.4545] },
+      "properties": { "id": 3, "name": "Huffaker Park", "manager": "City of Reno Parks & Recreation", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "The main paved loop at a stroll, with a view pause at the far end.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.7790, 39.4790] },
+      "properties": { "id": 4, "name": "Mira Loma Park", "manager": "City of Reno Parks & Recreation", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "One easy lap of the main path — or half a lap and a bench.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8155, 39.5245] },
+      "properties": { "id": 5, "name": "Wingfield Park / Downtown Riverwalk", "manager": "City of Reno Parks & Recreation", "region": "Reno", "comfort": "Gentle–Steady", "surface": "Mostly paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Some", "parking": "Yes — Limited", "tip": "Circle the island, cross one bridge, coffee optional.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8350, 39.5285] },
+      "properties": { "id": 6, "name": "Oxbow Nature Study Area", "manager": "City of Reno Parks & Recreation", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Limited", "tip": "The river-overlook stretch, pausing at each interpretive sign.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8265, 39.5465] },
+      "properties": { "id": 7, "name": "Rancho San Rafael Regional Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Gentle–Steady", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Front lawns to the pond and back — flat the whole way.", "verified": true, "fitness_court": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8230, 39.5495] },
+      "properties": { "id": 8, "name": "Wilbur D. May Arboretum", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Wander to Herman Pond and back, reading plant labels as you go.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8665, 39.5170] },
+      "properties": { "id": 9, "name": "Mayberry Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Upstream along the river to the footbridge and back.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8110, 39.4660] },
+      "properties": { "id": 10, "name": "Dorostkar Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Gentle–Steady", "surface": "Paved or firm", "restrooms": "Some", "benches": "Yes", "shade": "Some", "parking": "Yes — Limited", "tip": "The river nature loop under the cottonwoods.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8570, 39.3560] },
+      "properties": { "id": 11, "name": "Galena Creek Regional Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Steady", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Limited", "tip": "The visitor-center nature loop among the Jeffrey pines.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8590, 39.6440] },
+      "properties": { "id": 12, "name": "Swan Lake Nature Study Area", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Boardwalk out to the viewing area, sit, count species, walk back.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8110, 39.4180] },
+      "properties": { "id": 13, "name": "Thomas Creek Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Steady", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Some", "shade": "Yes", "parking": "Yes — Limited", "tip": "Creekside out-and-back at whatever distance feels right.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8120, 39.4605] },
+      "properties": { "id": 14, "name": "Bartley Ranch Regional Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Reno", "comfort": "Steady", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Some", "shade": "Some", "parking": "Yes — Limited", "tip": "The ranch-core loop past the historic buildings.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8640, 39.5035] },
+      "properties": { "id": 15, "name": "Caughlin Ranch paths", "manager": "Neighborhood Greenways / Other Walking Ideas", "region": "Reno", "comfort": "Gentle–Steady", "surface": "Some paved or firm sections", "restrooms": "Some", "benches": "Some", "shade": "Some", "parking": "Yes — Limited", "tip": "Pond-to-pond along the main path and back.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8720, 39.4870] },
+      "properties": { "id": 16, "name": "Steamboat Ditch Trail", "manager": "Neighborhood Greenways / Other Walking Ideas", "region": "Reno", "comfort": "Steady", "surface": "Some paved or firm sections", "restrooms": "Some", "benches": "Some", "shade": "Yes", "parking": "Yes — Limited", "tip": "Any stretch you like: it's flat in both directions, so walk out ten minutes and turn around.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.7480, 39.4280] },
+      "properties": { "id": 17, "name": "Damonte Ranch Wetlands / Damonte Ranch Trail", "manager": "Neighborhood Greenways / Other Walking Ideas", "region": "Reno", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Walk to the second viewing bench and back; early morning and dusk are busiest for birds.", "verified": true, "fitness_court": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.7255, 39.5405] },
+      "properties": { "id": 18, "name": "Sparks Marina Park", "manager": "Neighborhood Greenways / Other Walking Ideas", "region": "Sparks", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Ample", "tip": "Out-and-back along the west shore — ten minutes out, ten back, benches the whole way.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.5560, 39.5545] },
+      "properties": { "id": 19, "name": "McCarran Ranch Preserve", "manager": "The Nature Conservancy", "region": "Sparks", "comfort": "Steady–Moderate", "surface": "Some paved or firm sections", "restrooms": "To be verified", "benches": "To be verified", "shade": "Some", "parking": "Limited — Small dirt lot; no restrooms or developed facilities", "tip": "The river-access path just past the trailhead sign, before the trail turns rockier.", "verified": false } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.9970, 39.5160] },
+      "properties": { "id": 20, "name": "Verdi Nature Trail at Crystal Peak Park", "manager": "Nevada Department of Wildlife & Washoe County", "region": "Verdi", "comfort": "Steady", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Paved lots", "tip": "The interpretive loop, unhurried — or skip it entirely and sit by Verdi Pond.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8410, 39.2875] },
+      "properties": { "id": 21, "name": "Bowers Mansion Regional Park", "manager": "Washoe County Regional Parks & Open Space", "region": "Washoe Valley", "comfort": "Gentle–Steady", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Limited", "tip": "Circle the mansion grounds, then claim a lawn bench under the big trees.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.7720, 39.2385] },
+      "properties": { "id": 22, "name": "Washoe Lake State Park", "manager": "Nevada State Parks", "region": "Washoe Valley", "comfort": "Gentle–Steady", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Limited", "tip": "Shoreline stroll from the main day-use lawn, watching Slide Mountain change color.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.9160, 39.1060] },
+      "properties": { "id": 23, "name": "Spooner Lake State Park", "manager": "Nevada State Parks", "region": "Lake Tahoe & Incline Village", "comfort": "Steady–Moderate", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Some", "shade": "Some", "parking": "Yes — Limited", "tip": "The first stretch of the lake loop through the aspens, then back the same way.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.9310, 39.1980] },
+      "properties": { "id": 24, "name": "Sand Harbor / Lake Tahoe Nevada State Park", "manager": "Nevada State Parks", "region": "Lake Tahoe & Incline Village", "comfort": "Steady", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Some", "shade": "Some", "parking": "Yes — Limited", "tip": "The point boardwalk, slowly. That water color is the therapy.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.9290, 39.2310] },
+      "properties": { "id": 25, "name": "Tahoe East Shore Trail access areas", "manager": "Nevada State Parks", "region": "Lake Tahoe & Incline Village", "comfort": "Steady–Moderate", "surface": "Some paved or firm sections", "restrooms": "Some", "benches": "Some", "shade": "Some", "parking": "Yes — Limited", "tip": "From the Incline trailhead, walk to the first overlook and back.", "verified": true } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.8475, 39.0040] },
+      "properties": { "id": 26, "name": "Mormon Station State Historic Park", "manager": "Nevada State Parks", "region": "Carson Valley & beyond", "comfort": "Gentle", "surface": "Paved or firm", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Limited — Limited street parking", "tip": "The grounds loop plus the stockade, then a bench under the cottonwoods.", "verified": false } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.5900, 39.2430] },
+      "properties": { "id": 27, "name": "Dayton State Park", "manager": "Nevada State Parks", "region": "Carson Valley & beyond", "comfort": "Steady", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Yes", "shade": "Yes", "parking": "Yes — Day-use fee", "tip": "The shaded picnic-area paths — save the mill trail for a stronger day.", "verified": false } },
+
+    { "type": "Feature", "geometry": { "type": "Point", "coordinates": [-119.2670, 39.2930] },
+      "properties": { "id": 28, "name": "Fort Churchill State Historic Park", "manager": "Nevada State Parks", "region": "Carson Valley & beyond", "comfort": "Moderate", "surface": "Some paved or firm sections", "restrooms": "Yes", "benches": "Yes", "shade": "To be verified", "parking": "Yes — Day-use fee", "tip": "The ruins loop with the interpretive signs. October through April is your window.", "verified": false } }
+  ]
+}
