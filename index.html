@@ -81,7 +81,10 @@
                font-weight:600; font-size:16px; text-decoration:none;
                border-radius:12px; padding:14px; margin-top:24px; }
     .d-fine { font-size:12px; color:var(--muted); margin-top:16px; text-align:center; }
-  </style>
+  
+#osm-panel {position:fixed;top:62px;left:12px;z-index:11;background:#f7f5f0;box-shadow:0 3px 18px #0003;border-radius:12px;padding:12px;width:min(350px,calc(100vw - 90px));max-height:calc(100dvh - 340px);overflow:auto;font-size:13px;}
+#osm-panel summary{font-weight:700;cursor:pointer;font-size:15px}#osm-panel p{line-height:1.4}#osm-panel label{display:block;margin:9px 0}#osm-panel select{max-width:100%;padding:5px}#osm-panel button{padding:7px;margin:3px 0;cursor:pointer}#osm-panel table{width:100%;border-collapse:collapse}#osm-panel td,#osm-panel th{padding:5px;text-align:left;border-bottom:1px solid #ddd;overflow-wrap:anywhere;max-width:170px}#osm-panel .osm-fine{font-size:11px;color:#68716c}#osm-inspect{border-top:1px solid #ccc;margin-top:12px;padding-top:10px}
+</style>
 </head>
 <body>
   <div id="map"></div>
@@ -101,7 +104,7 @@
     // ===== 1. MAP SETUP =====
     const map = new maplibregl.Map({
       container: 'map',
-      style: 'https://tiles.openfreemap.org/styles/positron',
+      style: 'https://tiles.openfreemap.org/styles/bright',
       center: [-119.81, 39.35],
       zoom: 9.5,
       attributionControl: false,
@@ -495,5 +498,113 @@
 
     setSheet(false);
   </script>
+<script>
+/* Inspection graph: OSM node identity, never coordinate proximity, defines connectivity. */
+const Walking = (() => {
+  const explicit = new Set(['yes','designated','official','permissive']);
+  function status(t) {
+    if (t.area === 'yes' || /^(construction|proposed|abandoned|razed)$/.test(t.highway)) return 'excluded';
+    const access = t.foot || t.access;
+    if (['no','private','use_sidepath'].includes(access)) return 'restricted';
+    if (Object.keys(t).some(k => /conditional/.test(k)) || (access && !explicit.has(access))) return 'review';
+    if (/^(motorway|motorway_link|trunk|trunk_link|raceway|busway|escape)$/.test(t.highway) && !explicit.has(t.foot)) return 'excluded';
+    if (explicit.has(t.foot) || /^(footway|path|pedestrian|steps|living_street)$/.test(t.highway)) return 'candidate';
+    return 'review'; // Roads, cycleways, bridleways and unknown classes need inspection.
+  }
+  function build(raw, accept = () => true) {
+    const nodes = new Map(raw.elements.filter(e=>e.type==='node').map(n=>[n.id,n]));
+    const edges=[];
+    for (const w of raw.elements.filter(e=>e.type==='way' && e.tags?.highway)) {
+      const state=status(w.tags);
+      if (!accept(w.tags,state)) continue;
+      for(let i=1;i<w.nodes.length;i++) {
+        const a=nodes.get(w.nodes[i-1]), b=nodes.get(w.nodes[i]);
+        if(!a || !b) throw Error(`Incomplete OSM geometry for way ${w.id}`);
+        if(a.id===b.id) continue;
+        const rad=Math.PI/180, dlat=(b.lat-a.lat)*rad, dlon=(b.lon-a.lon)*rad;
+        const h=Math.sin(dlat/2)**2+Math.cos(a.lat*rad)*Math.cos(b.lat*rad)*Math.sin(dlon/2)**2;
+        edges.push({type:'Feature',id:`${w.id}:${i-1}`,geometry:{type:'LineString',coordinates:[[a.lon,a.lat],[b.lon,b.lat]]},properties:{...w.tags,way_id:w.id,from:a.id,to:b.id,index:i-1,status:state,surface_value:w.tags.surface||'unknown',length_m:6371000*2*Math.atan2(Math.sqrt(h),Math.sqrt(Math.max(0,1-h)))}});
+      }
+    }
+    const parent=new Map();
+    function root(x){let r=x;while(parent.get(r)!==r)r=parent.get(r);while(x!==r){const n=parent.get(x);parent.set(x,r);x=n;}return r;}
+    for(const e of edges){const {from:a,to:b}=e.properties;if(!parent.has(a))parent.set(a,a);if(!parent.has(b))parent.set(b,b);parent.set(root(a),root(b));}
+    const counts=new Map();for(const e of edges){const r=root(e.properties.from);counts.set(r,(counts.get(r)||0)+1);}
+    const ordered=[...counts].sort((a,b)=>b[1]-a[1]);const ids=new Map(ordered.map(([r],i)=>[r,i+1]));
+    for(const e of edges)e.properties.component=ids.get(root(e.properties.from));
+    return {type:'FeatureCollection',features:edges,nodeCount:parent.size,componentCount:ids.size,nodes:[...parent.keys()].map(id=>nodes.get(id))};
+  }
+  return {status,build};
+})();
+if(typeof module!=='undefined')module.exports=Walking;
+if(typeof document!=='undefined') (()=>{
+  const box=document.createElement('details');box.id='osm-panel';box.open=true;
+  box.innerHTML=`<summary>OSM walking network · inspect</summary><p>Reno area includes nearby paths beyond city limits. Load once, then watch filters rebuild the network.</p><button id="osm-load" disabled>Load Reno area</button> <button id="osm-view" disabled>Load map view</button> <button id="osm-cancel" disabled>Cancel</button><p id="osm-status" role="status">No OSM data loaded.</p><label><input id="osm-show" type="checkbox" checked> Show network</label><label>Access <select id="osm-access"><option value="possible">Candidates + needs review</option><option value="candidate">Candidates only</option><option value="all">All pulled ways (including excluded)</option></select></label><label>Surface <select id="osm-surface"><option value="*">All surfaces</option></select></label><label>Type <select id="osm-type"><option value="*">All highway types</option></select></label><label><input id="osm-steps" type="checkbox" checked> Include steps</label><label>Color by <select id="osm-color"><option value="status">Access review</option><option value="surface">Surface</option><option value="component">Connected component</option></select></label><p id="osm-stats"></p><p id="osm-legend">Green: candidate · amber: review · red: restricted · gray: excluded</p><button id="osm-export" disabled>Export filtered graph</button> <button id="osm-raw" disabled>Export raw OSM</button><div id="osm-inspect">Click a colored segment to see its tags.</div><p class="osm-fine">Inspection only: road surfaces are not sidewalk surfaces. Unknown tags stay unknown. Connectivity ignores barriers, conditional access and direction rules; no automatic route creation yet. © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors · ODbL</a></p>`;
+  document.body.append(box);
+  const $=id=>document.getElementById('osm-'+id);
+  let raw=null,graph=null,controller=null,metadata=null;
+  const palette=['#2274a5','#bd6525','#7c4ab0','#23875f','#cf427b','#747315','#3b6989','#a14436'];
+  const esc=v=>String(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const statusColor=['match',['get','status'],'candidate','#23875f','review','#d18a18','restricted','#c43d43','#787878'];
+  function repaint(){
+    if(!raw)return;
+    graph=Walking.build(raw,(t,s)=>($('access').value==='all'||($('access').value==='candidate'?s==='candidate':['candidate','review'].includes(s)))&&($('surface').value==='*'||(t.surface||'unknown')===$('surface').value)&&($('type').value==='*'||t.highway===$('type').value)&&($('steps').checked||t.highway!=='steps'));
+    map.getSource('osm-walk').setData(graph);
+    map.getSource('osm-selection').setData({type:'FeatureCollection',features:[]});
+    $('inspect').textContent='Click a colored segment to see its tags.';
+    const ways=new Set(graph.features.map(e=>e.properties.way_id));
+    const unknown=graph.features.filter(e=>e.properties.surface_value==='unknown').length;
+    $('stats').textContent=`${ways.size.toLocaleString()} ways → ${graph.features.length.toLocaleString()} edges · ${graph.nodeCount.toLocaleString()} nodes · ${graph.componentCount} components · ${(graph.features.reduce((s,e)=>s+e.properties.length_m,0)/1000).toFixed(1)} km. Surface unknown on ${unknown.toLocaleString()} edges.`;
+    let color=statusColor;
+    if($('color').value==='component') color=['match',['%', ['get','component'],palette.length],...palette.flatMap((c,i)=>[i,c]),'#555'];
+    if($('color').value==='surface') color=['match',['get','surface_value'],'asphalt','#2274a5','concrete','#2274a5','paved','#2274a5','paving_stones','#7c4ab0','gravel','#bd6525','fine_gravel','#bd6525','compacted','#23875f','dirt','#94683e','ground','#94683e','unknown','#9a9a9a','#cf427b'];
+    map.setPaintProperty('osm-lines','line-color',color);
+    $('legend').textContent=$('color').value==='component'?'Matching colors indicate components (palette repeats). Component 1 has the most edges. Filters recalculate connections.':$('color').value==='surface'?'Blue: asphalt / concrete / paved · purple: paving stones · orange: gravel · green: compacted · brown: dirt / ground · gray: unknown · pink: other': 'Green: candidate · amber: review · red: restricted · gray: excluded';
+  }
+  async function load(preset){
+    const b=map.getBounds();const bounds=preset?[39.35,-120.03,39.72,-119.65]:[b.getSouth(),b.getWest(),b.getNorth(),b.getEast()];
+    if(!preset && ((bounds[2]-bounds[0])>.4||(bounds[3]-bounds[1])>.5)){ $('status').textContent='Zoom in before loading map view (maximum about 45 × 45 km).';return; }
+    controller=new AbortController();const timer=setTimeout(()=>controller.abort(),150000);
+    $('load').disabled=$('view').disabled=true;$('cancel').disabled=false;
+    $('status').textContent='Fetching highway ways and tagged nodes… Existing data stays until a complete response arrives.';
+    const query=`[out:json][timeout:120];way["highway"](${bounds.join(',')});(._;>;);out body qt;`;
+    try{
+      const response=await fetch('https://overpass-api.de/api/interpreter',{method:'POST',body:new URLSearchParams({data:query}),signal:controller.signal});
+      if(!response.ok)throw Error(`Overpass HTTP ${response.status}; try again later`);
+      const next=await response.json();if(next.remark)throw Error(next.remark);if(!Array.isArray(next.elements))throw Error('Invalid OSM response');
+      Walking.build(next); // validate before replacing existing data
+      raw=next;metadata={bounds,query,fetched_at:new Date().toISOString(),osm_timestamp:next.osm3s?.timestamp_osm_base,attribution:'© OpenStreetMap contributors',license:'https://opendatacommons.org/licenses/odbl/1-0/'};
+      for(const [id,key] of [['surface','surface'],['type','highway']]){const values=[...new Set(raw.elements.filter(e=>e.type==='way'&&e.tags?.highway).map(e=>e.tags[key]||'unknown'))].sort();$(id).replaceChildren(new Option(id==='surface'?'All surfaces':'All highway types','*'),...values.map(v=>new Option(v,v)));}
+      repaint();$('status').textContent=`Loaded ${raw.elements.filter(e=>e.type==='way').length.toLocaleString()} ways. Snapshot: ${metadata.osm_timestamp||metadata.fetched_at}. Each load replaces the prior area.`;
+      $('export').disabled=$('raw').disabled=false;
+      if(preset)map.fitBounds([[bounds[1],bounds[0]],[bounds[3],bounds[2]]],{padding:70});
+    }catch(e){$('status').textContent=e.name==='AbortError'?'Request canceled or timed out. Previous data retained.':`Could not load: ${e.message}. Previous data retained.`;}
+    finally{clearTimeout(timer);controller=null;$('load').disabled=$('view').disabled=false;$('cancel').disabled=true;}
+  }
+  function download(name,data){const url=URL.createObjectURL(new Blob([JSON.stringify(data)],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+  $('load').onclick=()=>load(true);$('view').onclick=()=>load(false);$('cancel').onclick=()=>controller?.abort();
+  for(const id of ['access','surface','type','steps','color'])$(id).onchange=repaint;
+  $('show').onchange=()=>{if(!map.getLayer('osm-lines'))return;for(const id of ['osm-lines','osm-hit','osm-highlight'])map.setLayoutProperty(id,'visibility',$('show').checked?'visible':'none');};
+  $('export').onclick=()=>download('reno-walking-graph.json',{metadata,filters:{access:$('access').value,surface:$('surface').value,type:$('type').value,steps:$('steps').checked},...graph});
+  $('raw').onclick=()=>download('reno-osm-raw.json',{...raw,metadata});
+  map.on('load',()=>{
+    $('load').disabled=$('view').disabled=false;
+    const empty={type:'FeatureCollection',features:[]};map.addSource('osm-walk',{type:'geojson',data:empty});map.addSource('osm-selection',{type:'geojson',data:empty});
+    const before=map.getLayer('clusters')?'clusters':undefined;
+    map.addLayer({id:'osm-lines',type:'line',source:'osm-walk',paint:{'line-color':statusColor,'line-width':['interpolate',['linear'],['zoom'],10,1.5,16,5],'line-opacity':.85}},before);
+    map.addLayer({id:'osm-highlight',type:'line',source:'osm-selection',paint:{'line-color':'#ec27d8','line-width':8,'line-opacity':.75}},before);
+    map.addLayer({id:'osm-hit',type:'line',source:'osm-walk',paint:{'line-width':14,'line-opacity':0}},before);
+    map.on('click','osm-hit',e=>{
+      if(map.queryRenderedFeatures(e.point,{layers:['park-points','clusters']}).length)return;
+      const p=e.features[0].properties;const edge=graph.features.find(f=>f.id===e.features[0].id)||graph.features.find(f=>f.properties.way_id===p.way_id&&f.properties.index===p.index);
+      map.getSource('osm-selection').setData({type:'FeatureCollection',features:edge?[edge]:[]});
+      const way=raw.elements.find(w=>w.type==='way'&&w.id===p.way_id);const nodeTags=[p.from,p.to].map(id=>raw.elements.find(n=>n.type==='node'&&n.id===id)).filter(n=>n?.tags);
+      $('inspect').innerHTML=`<h3>${esc(p.name||p.highway)} · ${esc(p.status)}</h3><p>Way ${p.way_id} · edge ${p.index} · ${Number(p.length_m).toFixed(1)} m · component ${p.component}<br>Surface: ${esc(p.surface_value)}<br>Nodes ${p.from} → ${p.to}</p><a href="https://www.openstreetmap.org/way/${p.way_id}" target="_blank" rel="noopener">View in OSM ↗</a><h4>All way tags</h4><table>${Object.entries(way.tags).sort().map(([k,v])=>`<tr><th>${esc(k)}</th><td>${esc(v)}</td></tr>`).join('')}</table><h4>Endpoint node tags (barriers, crossings…)</h4>${nodeTags.length?nodeTags.map(n=>`<p>Node ${n.id}: ${esc(JSON.stringify(n.tags))}</p>`).join(''):'No endpoint tags mapped.'}`;
+    });
+    map.on('mouseenter','osm-hit',()=>map.getCanvas().style.cursor='pointer');map.on('mouseleave','osm-hit',()=>map.getCanvas().style.cursor='');
+  });
+})();
+
+</script>
 </body>
 </html>
