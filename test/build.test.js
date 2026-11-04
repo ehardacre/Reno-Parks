@@ -28,13 +28,14 @@ const network = {
     { type: 'way', id: 200, nodes: [3, 6, 7], tags: { highway: 'path', surface: 'gravel' } },
     { type: 'way', id: 300, nodes: [8, 9], tags: { highway: 'service', access: 'private' } },
     { type: 'way', id: 400, nodes: [10, 11], tags: { highway: 'residential', bridge: 'yes' } },
+    { type: 'way', id: 500, nodes: [5, 8], tags: { highway: 'service', service: 'driveway' } },
   ],
 };
 
 const segs = () => buildSegments(network).segments;
 const byId = (list) => Object.fromEntries(list.map((s) => [s.id, s]));
 
-test('segments split ways at junctions and drop restricted ways', () => {
+test('segments split ways at junctions and drop restricted ways and driveways', () => {
   const s = byId(segs());
   assert.deepEqual(Object.keys(s).sort(), ['100:0', '100:2', '200:0', '400:0']);
   assert.equal(s['100:0'].geometry.coordinates.length, 3);
@@ -175,11 +176,28 @@ test('build script writes network, places and metadata from saved Overpass files
     '--network', path.join(dir, 'network.json'), '--features', path.join(dir, 'features.json'),
     '--no-canopy', '--no-elevation', '--out', path.join(dir, 'out')], { stdio: 'pipe' });
   const read = (f) => JSON.parse(fs.readFileSync(path.join(dir, 'out', f), 'utf8'));
-  const net = read('walking-network.geojson'), places = read('places.geojson'), meta = read('network-meta.json');
+  const paths = read('walking-paths.geojson'), streets = read('walking-streets.geojson');
+  const net = { features: paths.features.concat(streets.features) };
+  const places = read('places.geojson'), meta = read('network-meta.json');
+  assert.deepEqual(paths.features.map((f) => f.id).sort(), ['100:0', '100:2', '200:0']);
+  assert.deepEqual(streets.features.map((f) => f.id), ['400:0']);
   assert.equal(net.features.length, 4);
   assert.equal(places.features.length, 6);
   assert.equal(meta.counts.segments, 4);
   assert.deepEqual(meta.sources.map((s) => s.name), ['OpenStreetMap']);
-  assert.equal(net.features.find((f) => f.id === '100:2').properties.n_shelter, 1);
+  const seg = net.features.find((f) => f.id === '100:2');
+  assert.equal(seg.properties.n_shelter, 1);
+  // Web output drops graph bookkeeping and zero counts, but keeps "not measured".
+  assert.equal(seg.properties.way_id, undefined);
+  assert.equal(seg.properties.n_toilets, undefined);
+  assert.equal(seg.properties.n_picnic, undefined);
   fs.rmSync(dir, { recursive: true });
+});
+
+test('web features drop zeros and bookkeeping, round coordinates, keep shade and grade', () => {
+  const { webFeature } = require('../scripts/lib/web');
+  const f = webFeature({ type: 'Feature', id: '7:0', geometry: { type: 'LineString', coordinates: [[-119.8000001, 39.5], [-119.8000002, 39.5000001]] },
+    properties: { way_id: 7, from: 1, to: 2, component: 1, highway: 'path', n_bench: 0, n_water: 2, shade_pct: 0, grade_max_pct: null, climb_m: null } });
+  assert.deepEqual(f.properties, { highway: 'path', n_water: 2, shade_pct: 0, grade_max_pct: null });
+  assert.deepEqual(f.geometry.coordinates, [[-119.8, 39.5], [-119.8, 39.5]]); // duplicates collapse but stay drawable
 });

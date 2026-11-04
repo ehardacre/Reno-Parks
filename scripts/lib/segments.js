@@ -14,10 +14,14 @@ const KEEP_TAGS = [
   'trail_visibility', 'informal', 'bridge', 'tunnel', 'covered', 'access', 'foot', 'service',
 ];
 
+// Driveways, parking-lot aisles and the like: real pavement, but not walking routes,
+// and in Reno they were a third of all segments.
+const SKIP_SERVICE = /^(driveway|drive-through|parking_aisle|emergency_access)$/;
+
 const round6 = (v) => Math.round(v * 1e6) / 1e6;
 
 function buildSegments(raw, { statuses = ['candidate', 'review'] } = {}) {
-  const graph = Walking.build(raw, (_tags, state) => statuses.includes(state));
+  const graph = Walking.build(raw, (tags, state) => statuses.includes(state) && !SKIP_SERVICE.test(tags.service || ''));
 
   // Degree counts edge incidences, so a node in the middle of one way has degree 2.
   const degree = new Map();

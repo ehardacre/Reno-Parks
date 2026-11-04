@@ -7,12 +7,13 @@ The site is static: `index.html` loads `parks.geojson` and the prebuilt files in
 
 ## Walking network
 
-`scripts/build-network.js` builds the network once, ahead of time, so the page loads one
-file instead of querying OpenStreetMap in the browser.
+`scripts/build-network.js` builds the network once, ahead of time, so the page loads prebuilt
+files instead of querying OpenStreetMap in the browser. Dedicated walking paths load with the
+page; streets are a separate file the map fetches only when you include them.
 
 ```bash
 npm install
-npm run build:network   # writes data/walking-network.geojson, data/places.geojson, data/network-meta.json
+npm run build:network   # writes data/walking-paths.geojson, walking-streets.geojson, places.geojson, network-meta.json
 ```
 
 Commit the `data/` folder afterwards so the published site picks it up. Downloads are

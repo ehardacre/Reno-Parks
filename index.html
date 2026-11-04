@@ -514,15 +514,15 @@
       legend: [['#dcc99a', 'Under 25% shaded'], ['#a9c47f', '25–49%'], ['#5f9e4f', '50–74%'], ['#2e6b30', '75%+ (tree-lined)'], [GREY, 'No canopy data']],
     },
     amenities: {
-      color: ['step', ['get', 'n_amenities'], '#d0d0d0', 1, '#8fbbe0', 2, '#3d8bc9', 4, '#1d4f91'],
+      color: ['step', ['coalesce', ['get', 'n_amenities'], 0], '#d0d0d0', 1, '#8fbbe0', 2, '#3d8bc9', 4, '#1d4f91'],
       legend: [['#d0d0d0', 'None nearby'], ['#8fbbe0', '1 bench, restroom, water or shelter'], ['#3d8bc9', '2–3'], ['#1d4f91', '4+']],
     },
     scenery: {
       color: ['case',
-        ['>', ['get', 'n_viewpoint'], 0], '#7c4ab0',
-        ['>=', ['get', 'water_pct'], 50], '#2274a5',
-        ['>=', ['get', 'park_pct'], 50], '#2e7d32',
-        ['>', ['get', 'n_poi'], 0], '#bd6525',
+        ['>', ['coalesce', ['get', 'n_viewpoint'], 0], 0], '#7c4ab0',
+        ['>=', ['coalesce', ['get', 'water_pct'], 0], 50], '#2274a5',
+        ['>=', ['coalesce', ['get', 'park_pct'], 0], 50], '#2e7d32',
+        ['>', ['coalesce', ['get', 'n_poi'], 0], 0], '#bd6525',
         '#d0d0d0'],
       legend: [['#7c4ab0', 'Passes a viewpoint'], ['#2274a5', 'Mostly by water'], ['#2e7d32', 'Mostly in a park'], ['#bd6525', 'Passes art, history or a sight'], ['#d0d0d0', 'None of these']],
     },
@@ -563,8 +563,8 @@
         <option value="surface">Surface</option>
       </select></label>
       <label>Include <select id="net-access">
-        <option value="possible">Paths and streets</option>
         <option value="candidate">Dedicated walking paths only</option>
+        <option value="possible">Paths and streets (larger download)</option>
       </select></label>
       <label>Shade <select id="net-shade">
         <option value="0">Any</option><option value="25">At least 25%</option><option value="50">At least 50%</option><option value="75">At least 75%</option>
@@ -624,14 +624,14 @@
       <p>${Math.round(p.length_m)} m · ${p.status === 'candidate' ? 'walking path' : 'street or shared path'}</p>
       <table>
         <tr><th>Shade</th><td>${pct(p.shade_pct)} of the way under trees</td></tr>
-        <tr><th>Steepest</th><td>${p.grade_max_pct == null ? 'not measured' : `${p.grade_max_pct}% grade · ↑${Math.round(p.climb_m)} m ↓${Math.round(p.descent_m)} m`}</td></tr>
-        <tr><th>By water</th><td>${pct(p.water_pct)}</td></tr>
-        <tr><th>In a park</th><td>${pct(p.park_pct)}${p.park ? ` (${esc(p.park)})` : ''}</td></tr>
+        <tr><th>Steepest</th><td>${p.grade_max_pct == null ? 'not measured' : `${p.grade_max_pct}% grade · ↑${Math.round(p.climb_m ?? 0)} m ↓${Math.round(p.descent_m ?? 0)} m`}</td></tr>
+        <tr><th>By water</th><td>${pct(p.water_pct ?? 0)}</td></tr>
+        <tr><th>In a park</th><td>${pct(p.park_pct ?? 0)}${p.park ? ` (${esc(p.park)})` : ''}</td></tr>
         <tr><th>Amenities</th><td>${counts.length ? counts.join(', ') : 'none mapped nearby'}</td></tr>
       </table>
       ${p.poi_ids ? `<h4>Along the way</h4><ul>${p.poi_ids.map(placeLine).join('')}</ul>` : ''}
       <h4>OpenStreetMap tags</h4><table>${tagRows}</table>
-      <p><a href="https://www.openstreetmap.org/way/${p.way_id}" target="_blank" rel="noopener">View or fix in OpenStreetMap ↗</a></p>`;
+      <p><a href="https://www.openstreetmap.org/way/${String(p.sid).split(':')[0]}" target="_blank" rel="noopener">View or fix in OpenStreetMap ↗</a></p>`;
   }
 
   function placeHTML(f) {
@@ -659,7 +659,7 @@
     let network, placeData, meta;
     try {
       [network, placeData, meta] = await Promise.all([
-        getJSON('data/walking-network.geojson'), getJSON('data/places.geojson'), getJSON('data/network-meta.json').catch(() => null),
+        getJSON('data/walking-paths.geojson'), getJSON('data/places.geojson'), getJSON('data/network-meta.json').catch(() => null),
       ]);
     } catch (err) {
       $('status').innerHTML = err.status === 404
@@ -667,9 +667,12 @@
         : `Could not load the walking network: ${esc(err.message)}`;
       return;
     }
-    all = network.features;
     // MapLibre drops string ids, so carry them as properties for lookups on click.
-    for (const f of all) { f.properties.sid = f.id; segments.set(f.id, f); }
+    const addSegments = (features) => {
+      for (const f of features) { f.properties.sid = f.id; segments.set(f.id, f); }
+      all = all.concat(features);
+    };
+    addSegments(network.features);
     for (const f of placeData.features) { f.properties.pid = f.id; places.set(f.id, f); }
 
     const attribution = '<a href="https://www.openstreetmap.org/copyright" target="_blank">© OpenStreetMap</a> · canopy © Meta &amp; WRI';
@@ -691,7 +694,24 @@
     const setVisible = (ids, on) => ids.forEach((id) => map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'));
     $('show').onchange = () => setVisible(['net-lines', 'net-hit', 'net-highlight'], $('show').checked);
     $('places').onchange = () => setVisible(['net-place-dots', 'net-place-labels'], $('places').checked);
-    for (const id of ['color', 'access', 'shade', 'grade']) $(id).onchange = repaint;
+    for (const id of ['color', 'shade', 'grade']) $(id).onchange = repaint;
+    // Streets are a separate, larger file, fetched the first time they're asked for.
+    let streets = null;
+    $('access').onchange = async () => {
+      if ($('access').value === 'possible' && !streets) {
+        $('stats').textContent = 'Loading streets…';
+        try {
+          streets = await getJSON('data/walking-streets.geojson');
+        } catch (err) {
+          $('stats').textContent = `Could not load streets: ${esc(err.message)}`;
+          $('access').value = 'candidate';
+          return;
+        }
+        addSegments(streets.features);
+        map.getSource('net').setData({ type: 'FeatureCollection', features: all });
+      }
+      repaint();
+    };
 
     map.on('click', 'net-place-dots', (e) => {
       const f = places.get(e.features[0].properties.pid);
@@ -711,7 +731,7 @@
       map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
     }
 
-    $('status').textContent = `${all.length.toLocaleString()} path segments · ${placeData.features.length.toLocaleString()} amenities and places.`;
+    $('status').textContent = `${placeData.features.length.toLocaleString()} amenities and places.`;
     $('controls').hidden = false;
     $('sources').innerHTML = sourcesHTML(meta);
     repaint();

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // Build the prebuilt walking network the map loads:
-//   data/walking-network.geojson  segments with shade, slope, amenities, scenery
+//   data/walking-paths.geojson    dedicated walking paths with shade, slope, amenities, scenery
+//   data/walking-streets.geojson  streets and shared paths, same measures (loaded on demand)
 //   data/places.geojson           benches, restrooms, water, viewpoints, points of interest
 //   data/network-meta.json        sources, snapshot dates, filters, counts
 //
@@ -23,6 +24,7 @@ const { extractPlaces, extractAreas } = require('./lib/osm-features');
 const { enrichPlaces, enrichAreas } = require('./lib/enrich');
 const { enrichCanopy, metaCanopySource } = require('./lib/canopy');
 const { enrichElevation, terrariumSource } = require('./lib/elevation');
+const { webFeature } = require('./lib/web');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_BBOX = [39.35, -120.03, 39.72, -119.65];
@@ -136,9 +138,12 @@ async function main() {
     console.log(`  wrote ${path.relative(process.cwd(), file)} (${(fs.statSync(file).size / 1e6).toFixed(1)} MB)`);
   };
   console.log('Writing output…');
-  write('walking-network.geojson', featureCollection(segments));
-  const mb = fs.statSync(path.join(opts.out, 'walking-network.geojson')).size / 1e6;
-  if (mb > 15) console.warn(`  note: ${mb.toFixed(0)} MB is heavy for phones. Try a smaller --bbox or --statuses candidate (paths only).`);
+  // Split so the map can load dedicated paths first and fetch streets only when asked.
+  const web = segments.map(webFeature);
+  write('walking-paths.geojson', featureCollection(web.filter((f) => f.properties.status === 'candidate')));
+  write('walking-streets.geojson', featureCollection(web.filter((f) => f.properties.status !== 'candidate')));
+  const old = path.join(opts.out, 'walking-network.geojson');
+  if (fs.existsSync(old)) fs.unlinkSync(old); // replaced by the two files above
   write('places.geojson', featureCollection(places));
   write('network-meta.json', {
     built_at: new Date().toISOString(),
