@@ -12,6 +12,7 @@
 //   --network FILE        use a saved Overpass network response (e.g. the map's old
 //                         "Export raw OSM" download) instead of fetching
 //   --features FILE       use a saved Overpass features response instead of fetching
+//   OVERPASS_URL=...      try this Overpass server first (others are tried if it is busy)
 //   --refresh             ignore cached OSM downloads in data/cache
 //   --statuses LIST       access statuses to keep (default: candidate,review)
 //   --no-canopy           skip shade
@@ -46,7 +47,14 @@ function defaultBoxes(parksFile = path.join(ROOT, 'parks.geojson')) {
   }
   return boxes;
 }
-const OVERPASS = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
+// Public Overpass servers, tried in turn when one is overloaded. OVERPASS_URL puts
+// your choice first.
+const OVERPASS_SERVERS = [
+  process.env.OVERPASS_URL,
+  'https://overpass-api.de/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
+  'https://overpass.kumi.systems/api/interpreter',
+].filter(Boolean);
 
 function parseArgs(argv) {
   const opts = { boxes: null, statuses: ['candidate', 'review'], canopy: true, elevation: true, refresh: false, out: path.join(ROOT, 'data') };
@@ -78,7 +86,8 @@ ${each(boxes, ['way["highway"]'])}
 (._;>;);
 out body qt;`;
 
-const featuresQuery = (boxes) => `[out:json][timeout:300];
+// Two smaller requests instead of one: busy servers time out on the combined query.
+const placesQuery = (boxes) => `[out:json][timeout:300];
 (
 ${each(boxes, [
     'nwr["amenity"~"^(bench|toilets|drinking_water|water_point|shelter|fountain)$"]',
@@ -92,7 +101,9 @@ ${each(boxes, [
     'node["shelter"="yes"]',
   ])}
 );
-out center tags;
+out center tags;`;
+
+const areasQuery = (boxes) => `[out:json][timeout:300];
 (
 ${each(boxes, [
     'way["waterway"~"^(river|stream|canal|riverbank)$"]',
@@ -105,23 +116,43 @@ ${each(boxes, [
 );
 out geom;`;
 
-async function overpass(query, label, cacheFile, refresh) {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// Fetch with retries: busy (429), gateway (502–504) and timeout errors are common on
+// the public servers and usually pass, so wait and try the next server.
+async function overpass(query, label, cacheFile, refresh, { servers = OVERPASS_SERVERS, attempts = 6, waitMs = 20000 } = {}) {
   if (!refresh && fs.existsSync(cacheFile)) {
     console.log(`${label}: using cached ${path.relative(ROOT, cacheFile)} (pass --refresh to refetch)`);
     return JSON.parse(fs.readFileSync(cacheFile, 'utf8'));
   }
-  console.log(`${label}: fetching from Overpass (can take a minute or two)…`);
-  const res = await fetch(OVERPASS, {
-    method: 'POST',
-    headers: { 'User-Agent': 'reno-parks-network-builder' },
-    body: new URLSearchParams({ data: query }),
-  });
-  if (!res.ok) throw Error(`Overpass HTTP ${res.status} for ${label}; try again later or set OVERPASS_URL to another server`);
-  const json = await res.json();
-  if (json.remark && /error|timed out|runtime/i.test(json.remark)) throw Error(`Overpass: ${json.remark}`);
-  fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-  fs.writeFileSync(cacheFile, JSON.stringify(json));
-  return json;
+  let lastError;
+  for (let i = 0; i < attempts; i++) {
+    const server = servers[i % servers.length];
+    if (i > 0) {
+      const wait = waitMs * Math.min(4, i);
+      console.log(`  ${lastError.message}. Trying ${new URL(server).host} in ${Math.round(wait / 1000)} s…`);
+      await sleep(wait);
+    }
+    console.log(`${label}: fetching from ${new URL(server).host} (can take a few minutes)…`);
+    try {
+      const res = await fetch(server, {
+        method: 'POST',
+        headers: { 'User-Agent': 'reno-parks-network-builder' },
+        body: new URLSearchParams({ data: query }),
+      });
+      if (res.status === 400) throw Object.assign(Error(`Overpass rejected the query: ${(await res.text()).slice(0, 300)}`), { fatal: true });
+      if (!res.ok) throw Error(`HTTP ${res.status} from ${new URL(server).host}`);
+      const json = await res.json();
+      if (json.remark && /error|timed out|runtime/i.test(json.remark)) throw Error(`${new URL(server).host}: ${json.remark}`);
+      fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+      fs.writeFileSync(cacheFile, JSON.stringify(json));
+      return json;
+    } catch (err) {
+      if (err.fatal) throw err;
+      lastError = err;
+    }
+  }
+  throw Error(`${label}: Overpass servers are busy (${lastError.message}). Rerun later; finished downloads are cached, so only this part repeats`);
 }
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -135,7 +166,13 @@ async function main() {
   const t0 = Date.now();
 
   const networkRaw = opts.network ? readJson(opts.network) : await overpass(networkQuery(opts.boxes), 'Walking network', path.join(cache, `osm-network-${key}.json`), opts.refresh);
-  const featuresRaw = opts.features ? readJson(opts.features) : await overpass(featuresQuery(opts.boxes), 'Amenities and scenery', path.join(cache, `osm-features-${key}.json`), opts.refresh);
+  let featuresRaw;
+  if (opts.features) featuresRaw = readJson(opts.features);
+  else {
+    const placesRaw = await overpass(placesQuery(opts.boxes), 'Amenities and sights', path.join(cache, `osm-places-${key}.json`), opts.refresh);
+    const areasRaw = await overpass(areasQuery(opts.boxes), 'Water and park outlines', path.join(cache, `osm-areas-${key}.json`), opts.refresh);
+    featuresRaw = { osm3s: placesRaw.osm3s, elements: [...placesRaw.elements, ...areasRaw.elements] };
+  }
 
   console.log('Building segments…');
   const { segments, nodeCount, componentCount, edgeCount } = buildSegments(networkRaw, { statuses: opts.statuses });
@@ -207,4 +244,4 @@ if (require.main === module) {
   main().catch((err) => { console.error(`\nBuild failed: ${err.message}`); process.exit(1); });
 }
 
-module.exports = { parseArgs, networkQuery, featuresQuery, defaultBoxes, RENO_BBOX };
+module.exports = { parseArgs, networkQuery, placesQuery, areasQuery, overpass, defaultBoxes, RENO_BBOX };

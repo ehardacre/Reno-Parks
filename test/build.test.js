@@ -245,3 +245,34 @@ test('tiles start at zoom 13, without the smallest pieces until zoom 14', () => 
   assert.deepEqual(slim, { name: 'X', surface: 'gravel', sid: '1:0' });
   assert.equal(tileProperties({ id: '1:0', properties: { poi_ids: ['a', 'b'] } }, true).poi_ids, 'a,b');
 });
+
+test('Overpass downloads retry busy servers, move to the next one, and cache the result', async () => {
+  const http = require('http'), fs = require('fs'), os = require('os'), path = require('path');
+  const { overpass } = require('../scripts/build-network');
+  const hits = [];
+  const server = http.createServer((req, res) => {
+    hits.push(req.url);
+    if (req.url.startsWith('/busy')) { res.writeHead(502); return res.end(); }
+    if (req.url.startsWith('/bad')) { res.writeHead(400); return res.end('parse error'); }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ elements: [{ type: 'node', id: 1 }] }));
+  });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  const base = `http://127.0.0.1:${server.address().port}`;
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reno-op-'));
+  const quiet = console.log; console.log = () => {};
+  try {
+    const json = await overpass('q', 'Test', path.join(dir, 'a.json'), false, { servers: [`${base}/busy`, `${base}/ok`], waitMs: 1 });
+    assert.equal(json.elements.length, 1);
+    assert.deepEqual(hits, ['/busy', '/ok']);
+    await overpass('q', 'Test', path.join(dir, 'a.json'), false, { servers: [`${base}/busy`], waitMs: 1 }); // cached: no request
+    assert.equal(hits.length, 2);
+    await assert.rejects(overpass('q', 'Test', path.join(dir, 'b.json'), false, { servers: [`${base}/busy`], attempts: 3, waitMs: 1 }), /busy/);
+    await assert.rejects(overpass('q', 'Test', path.join(dir, 'c.json'), false, { servers: [`${base}/bad`, `${base}/ok`], waitMs: 1 }), /rejected/);
+    assert.equal(hits.filter((h) => h === '/bad').length, 1); // a bad query isn't retried
+  } finally {
+    console.log = quiet;
+    server.close();
+    fs.rmSync(dir, { recursive: true });
+  }
+});
