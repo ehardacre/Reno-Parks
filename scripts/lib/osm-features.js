@@ -122,4 +122,31 @@ function extractAreas(raw) {
   return { water: water.filter((l) => l.length > 1), green };
 }
 
-module.exports = { extractPlaces, extractAreas, kindsOf, assembleRings, CATEGORY, LABEL };
+// Named park-like outlines for matching the curated parks to OSM: parks, gardens,
+// nature reserves, recreation grounds and named state parks or preserves. Each OSM
+// element becomes one feature, however many rings it has.
+const isBoundary = (t) => /^(park|nature_reserve|garden|recreation_ground)$/.test(t.leisure || '') || t.boundary === 'protected_area';
+
+function extractParkBoundaries(raw) {
+  const out = [];
+  for (const e of raw.elements || []) {
+    const t = e.tags || {};
+    if (!t.name || !isBoundary(t)) continue;
+    let rings = [];
+    if (e.type === 'way' && e.geometry) {
+      const line = lineOf(e.geometry);
+      if (line.length >= 4 && sameNode(line[0], line[line.length - 1])) rings = [line];
+    } else if (e.type === 'relation' && e.members) {
+      rings = assembleRings(e.members.filter((m) => m.type === 'way' && m.geometry && m.role !== 'inner').map((m) => lineOf(m.geometry)));
+    }
+    if (!rings.length) continue;
+    out.push({
+      type: 'Feature', id: `${e.type}/${e.id}`,
+      geometry: { type: 'MultiPolygon', coordinates: rings.map((r) => [r]) },
+      properties: { name: t.name, osm: `${e.type}/${e.id}`, kind: t.leisure || t.boundary, operator: t.operator },
+    });
+  }
+  return out;
+}
+
+module.exports = { extractPlaces, extractAreas, extractParkBoundaries, kindsOf, assembleRings, CATEGORY, LABEL };

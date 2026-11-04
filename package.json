@@ -3,7 +3,9 @@
   "private": true,
   "description": "Healing Steps: Reno-area parks and walking network",
   "scripts": {
+    "build": "npm run build:network && npm run build:parks",
     "build:network": "node scripts/build-network.js",
+    "build:parks": "node scripts/build-parks.js",
     "test": "node --test test/*.test.js"
   },
   "engines": {

@@ -162,7 +162,13 @@ test('slope: steepest 30 m grade, climb and descent; bridges left blank', async 
 
 test('command-line options', () => {
   const o = parseArgs(['--bbox', '39.5,-119.9,39.6,-119.8', '--no-canopy', '--statuses', 'candidate']);
-  assert.deepEqual(o.bbox, [39.5, -119.9, 39.6, -119.8]);
+  assert.deepEqual(o.boxes, [[39.5, -119.9, 39.6, -119.8]]);
+  // By default: the Reno box plus a box around each curated park outside it.
+  const { defaultBoxes, RENO_BBOX, networkQuery } = require('../scripts/build-network');
+  const boxes = defaultBoxes();
+  assert.deepEqual(boxes[0], RENO_BBOX);
+  assert.ok(boxes.length > 1 && boxes.slice(1).every((b) => b[2] - b[0] > 0.08 && b[2] - b[0] < 0.1)); // ±5 km
+  assert.equal((networkQuery(boxes).match(/way\["highway"\]/g) || []).length, boxes.length);
   assert.equal(o.canopy, false);
   assert.equal(o.elevation, true);
   assert.deepEqual(o.statuses, ['candidate']);

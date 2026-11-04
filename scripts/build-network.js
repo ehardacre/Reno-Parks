@@ -7,7 +7,8 @@
 //   data/network-meta.json        sources, snapshot dates, filters, counts
 //
 // Usage: npm run build:network -- [options]
-//   --bbox S,W,N,E        area to build (default: Reno area, same as the map's preset)
+//   --bbox S,W,N,E        area to build (default: the Reno area plus a 5 km box around
+//                         each park in parks.geojson that lies outside it)
 //   --network FILE        use a saved Overpass network response (e.g. the map's old
 //                         "Export raw OSM" download) instead of fetching
 //   --features FILE       use a saved Overpass features response instead of fetching
@@ -20,7 +21,7 @@
 const fs = require('fs');
 const path = require('path');
 const { buildSegments } = require('./lib/segments');
-const { extractPlaces, extractAreas } = require('./lib/osm-features');
+const { extractPlaces, extractAreas, extractParkBoundaries } = require('./lib/osm-features');
 const { enrichPlaces, enrichAreas } = require('./lib/enrich');
 const { enrichCanopy, metaCanopySource } = require('./lib/canopy');
 const { enrichElevation, terrariumSource } = require('./lib/elevation');
@@ -28,14 +29,30 @@ const { webFeature } = require('./lib/web');
 const { writeTiles } = require('./lib/tiles');
 
 const ROOT = path.join(__dirname, '..');
-const DEFAULT_BBOX = [39.35, -120.03, 39.72, -119.65];
+const RENO_BBOX = [39.35, -120.03, 39.72, -119.65];
+const PARK_BUFFER_M = 5000;
+
+// The Reno box, plus a box around every curated park outside it (Tahoe, Washoe Lake,
+// Dayton…), so outlying parks get a network without downloading the desert between.
+function defaultBoxes(parksFile = path.join(ROOT, 'parks.geojson')) {
+  const boxes = [RENO_BBOX];
+  if (!fs.existsSync(parksFile)) return boxes;
+  const [s, w, n, e] = RENO_BBOX;
+  for (const f of JSON.parse(fs.readFileSync(parksFile, 'utf8')).features) {
+    const [lon, lat] = f.geometry.coordinates;
+    if (lon >= w && lon <= e && lat >= s && lat <= n) continue;
+    const dy = PARK_BUFFER_M / 111195, dx = dy / Math.cos((lat * Math.PI) / 180);
+    boxes.push([lat - dy, lon - dx, lat + dy, lon + dx].map((v) => Math.round(v * 1e4) / 1e4));
+  }
+  return boxes;
+}
 const OVERPASS = process.env.OVERPASS_URL || 'https://overpass-api.de/api/interpreter';
 
 function parseArgs(argv) {
-  const opts = { bbox: DEFAULT_BBOX, statuses: ['candidate', 'review'], canopy: true, elevation: true, refresh: false, out: path.join(ROOT, 'data') };
+  const opts = { boxes: null, statuses: ['candidate', 'review'], canopy: true, elevation: true, refresh: false, out: path.join(ROOT, 'data') };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i], next = () => { if (i + 1 >= argv.length) throw Error(`${a} needs a value`); return argv[++i]; };
-    if (a === '--bbox') opts.bbox = next().split(',').map(Number);
+    if (a === '--bbox') opts.boxes = [next().split(',').map(Number)];
     else if (a === '--network') opts.network = next();
     else if (a === '--features') opts.features = next();
     else if (a === '--statuses') opts.statuses = next().split(',');
@@ -45,30 +62,46 @@ function parseArgs(argv) {
     else if (a === '--out') opts.out = path.resolve(next());
     else throw Error(`Unknown option ${a}`);
   }
-  if (opts.bbox.length !== 4 || opts.bbox.some(Number.isNaN)) throw Error('--bbox must be S,W,N,E');
+  if (opts.boxes && (opts.boxes[0].length !== 4 || opts.boxes[0].some(Number.isNaN))) throw Error('--bbox must be S,W,N,E');
+  opts.boxes = opts.boxes || defaultBoxes();
   return opts;
 }
 
-// The same query the map's inspector used, so its raw exports work as --network input.
-const networkQuery = (b) => `[out:json][timeout:180];way["highway"](${b});(._;>;);out body qt;`;
+// Repeat each statement for every box; Overpass merges the results.
+const each = (boxes, statements) => boxes.flatMap((box) => statements.map((st) => `  ${st}(${box.join(',')});`)).join('\n');
 
-const featuresQuery = (b) => `[out:json][timeout:180];
+// With one box this is the query the map's old inspector used, so its raw exports work as --network input.
+const networkQuery = (boxes) => `[out:json][timeout:300];
 (
-  nwr["amenity"~"^(bench|toilets|drinking_water|water_point|shelter|fountain)$"](${b});
-  nwr["leisure"~"^(picnic_table|bench)$"](${b});
-  nwr["tourism"~"^(viewpoint|artwork|attraction|museum|picnic_site)$"](${b});
-  nwr["tourism"="information"]["information"="board"](${b});
-  nwr["historic"](${b});
-  nwr["natural"~"^(peak|waterfall|spring)$"](${b});
-  node["man_made"="water_tap"](${b});
-  node["bench"="yes"](${b});
-  node["shelter"="yes"](${b});
+${each(boxes, ['way["highway"]'])}
+);
+(._;>;);
+out body qt;`;
+
+const featuresQuery = (boxes) => `[out:json][timeout:300];
+(
+${each(boxes, [
+    'nwr["amenity"~"^(bench|toilets|drinking_water|water_point|shelter|fountain)$"]',
+    'nwr["leisure"~"^(picnic_table|bench)$"]',
+    'nwr["tourism"~"^(viewpoint|artwork|attraction|museum|picnic_site)$"]',
+    'nwr["tourism"="information"]["information"="board"]',
+    'nwr["historic"]',
+    'nwr["natural"~"^(peak|waterfall|spring)$"]',
+    'node["man_made"="water_tap"]',
+    'node["bench"="yes"]',
+    'node["shelter"="yes"]',
+  ])}
 );
 out center tags;
 (
-  way["waterway"~"^(river|stream|canal|riverbank)$"](${b});
-  nwr["natural"="water"](${b});
-  nwr["leisure"~"^(park|nature_reserve|garden)$"](${b});
+${each(boxes, [
+    'way["waterway"~"^(river|stream|canal|riverbank)$"]',
+    'nwr["natural"="water"]',
+    'nwr["leisure"~"^(park|nature_reserve|garden|recreation_ground)$"]',
+    // Named state parks and preserves, for matching park boundaries only. The name
+    // filter keeps out national forests and wilderness, whose outlines are enormous.
+    'nwr["boundary"="protected_area"]["name"~"State Park|State Historic Park|Preserve|Regional Park|Nature Study|Open Space",i]',
+  ])}
 );
 out geom;`;
 
@@ -96,12 +129,13 @@ const featureCollection = (features) => ({ type: 'FeatureCollection', features }
 
 async function main() {
   const opts = parseArgs(process.argv.slice(2));
-  const b = opts.bbox.join(',');
+  const key = require('crypto').createHash('sha1').update(JSON.stringify(opts.boxes)).digest('hex').slice(0, 10);
+  console.log(`Area: ${opts.boxes.length} box${opts.boxes.length > 1 ? 'es' : ''} (Reno${opts.boxes.length > 1 ? ' plus outlying parks' : ''})`);
   const cache = path.join(ROOT, 'data', 'cache');
   const t0 = Date.now();
 
-  const networkRaw = opts.network ? readJson(opts.network) : await overpass(networkQuery(b), 'Walking network', path.join(cache, `osm-network-${b}.json`), opts.refresh);
-  const featuresRaw = opts.features ? readJson(opts.features) : await overpass(featuresQuery(b), 'Amenities and scenery', path.join(cache, `osm-features-${b}.json`), opts.refresh);
+  const networkRaw = opts.network ? readJson(opts.network) : await overpass(networkQuery(opts.boxes), 'Walking network', path.join(cache, `osm-network-${key}.json`), opts.refresh);
+  const featuresRaw = opts.features ? readJson(opts.features) : await overpass(featuresQuery(opts.boxes), 'Amenities and scenery', path.join(cache, `osm-features-${key}.json`), opts.refresh);
 
   console.log('Building segments…');
   const { segments, nodeCount, componentCount, edgeCount } = buildSegments(networkRaw, { statuses: opts.statuses });
@@ -143,6 +177,8 @@ async function main() {
   const fullDir = path.join(opts.out, 'cache');
   fs.mkdirSync(fullDir, { recursive: true });
   fs.writeFileSync(path.join(fullDir, 'walking-network-full.geojson'), JSON.stringify(featureCollection(segments)));
+  // Park outlines for `npm run build:parks`.
+  fs.writeFileSync(path.join(fullDir, 'park-boundaries.geojson'), JSON.stringify(featureCollection(extractParkBoundaries(featuresRaw))));
   console.log('Writing vector tiles…');
   const tiles = writeTiles(segments.map(webFeature), path.join(opts.out, 'tiles'), { log: console.log });
   // Earlier builds wrote the network as GeoJSON; the tiles replace those files.
@@ -150,7 +186,7 @@ async function main() {
   write('places.geojson', featureCollection(places));
   write('network-meta.json', {
     built_at: new Date().toISOString(),
-    bbox: opts.bbox,
+    boxes: opts.boxes,
     statuses: opts.statuses,
     counts: { segments: segments.length, nodes: nodeCount, components: componentCount, places: places.length },
     tiles,
@@ -171,4 +207,4 @@ if (require.main === module) {
   main().catch((err) => { console.error(`\nBuild failed: ${err.message}`); process.exit(1); });
 }
 
-module.exports = { parseArgs, networkQuery, featuresQuery };
+module.exports = { parseArgs, networkQuery, featuresQuery, defaultBoxes, RENO_BBOX };

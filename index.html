@@ -156,6 +156,7 @@
 
     // ===== 3. APP STATE =====
     let parks = [];        // all park features from parks.geojson
+    let parkScores = new Map(); // park id -> walking-resources summary (data/park-scores.geojson)
     let selectedId = null; // the featured park (ids are internal only, never shown)
 
     // ===== 4. BOTTOM SHEET: OPEN / CLOSE / DRAG =====
@@ -256,9 +257,13 @@
         selectedId = vis.length ? vis[0].properties.id : null;
       }
 
-      // Highlight the featured park's pin
+      // Highlight the featured park's pin, and outline its area when we know it
       if (map.getLayer('park-selected')) {
         map.setFilter('park-selected', ['==', ['get', 'id'], selectedId ?? -1]);
+      }
+      if (map.getSource('park-area')) {
+        const area = parkScores.get(selectedId);
+        map.getSource('park-area').setData({ type: 'FeatureCollection', features: area ? [area] : [] });
       }
 
       document.getElementById('count').textContent =
@@ -295,6 +300,40 @@
 
     // ===== 9. FULL-SCREEN DETAILS PAGE =====
     const details = document.getElementById('details');
+
+    // OSM names are user-contributed text, so escape them before putting them in HTML
+    const escapeHTML = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+
+    // "Walking resources" section, from the OSM-based park summary
+    function resourcesHTML(area, fact) {
+      const esc = escapeHTML;
+      if (!area) return '';
+      const s = area.properties;
+      const pct = (v) => (v == null ? '–' : `${v}%`);
+      const n = (v, one, many) => `${v} ${v === 1 ? one : many}`;
+      const loops = s.loops >= 5 ? 'Many ways to wander' : s.loops >= 2 ? 'A few loop options' : s.loops === 1 ? 'One loop' : 'Out and back';
+      const where = s.match === 'radius'
+        ? 'Approximate: this park has no mapped outline yet, so this covers paths within 400 m of its pin.'
+        : s.match === 'trail' ? `Covers the paths named ${s.matched.join(', ')}.` : `Covers the mapped area of ${s.matched.join(', ')}.`;
+      const sights = s.sight_names?.length ? `<div class="d-note">Along the way: ${esc(s.sight_names.join(', '))}</div>` : '';
+      return `
+          <div class="d-section">
+            <h2>Walking resources</h2>
+            <span class="pill" style="background:var(--green);margin-top:0">${s.score} / 100</span>
+            <div class="facts" style="margin-top:10px">
+              ${fact('Walking paths', `${s.km_paths} km${s.km_streets + s.km_access_roads ? ` + ${Math.round((s.km_streets + s.km_access_roads) * 10) / 10} km roads` : ''}`)}
+              ${fact('Under tree shade', pct(s.shade_pct))}
+              ${fact('Under 5% grade', pct(s.under_5_pct))}
+              ${fact('Path layout', loops)}
+              ${fact('Restrooms', s.restrooms ? s.restrooms : 'None mapped')}
+              ${fact('Benches and shelters', s.benches + s.shelters ? n(s.benches + s.shelters, 'spot', 'spots') : 'None mapped')}
+              ${fact('Drinking water', s.drinking_water ? n(s.drinking_water, 'fountain', 'fountains') : 'None mapped')}
+              ${fact('Viewpoints and sights', s.viewpoints + s.sights || 'None mapped')}
+            </div>
+            ${sights}
+            <p class="d-fine" style="text-align:left">${esc(where)} From OpenStreetMap and tree-canopy data; "none mapped" can mean nobody has added it yet.</p>
+          </div>`;
+    }
 
     function detailsHTML(f) {
       const p = f.properties;
@@ -338,6 +377,8 @@
             ${p.verified ? '' : '<div class="d-note warn">Newly added — pending field verification. Details may change.</div>'}
             ${p.fitness_court ? '<div class="d-note">Has a free, on-site Renown Health / National Fitness Campaign outdoor Fitness Court — a separate, more vigorous strength-training option.</div>' : ''}
           </div>
+
+          ${resourcesHTML(parkScores.get(p.id), fact)}
 
           <a class="btn-dir" target="_blank" href="${directionsURL(f)}">Get directions to parking</a>
           <p class="d-fine">Verify current conditions before a visit.</p>
@@ -383,6 +424,17 @@
     // ===== 11. LOAD PARKS + PINS =====
     map.on('load', async () => {
       const data = await (await fetch('parks.geojson', { cache: 'no-cache' })).json();
+      // Optional: walking-resources summaries from `npm run build:parks`
+      try {
+        const res = await fetch('data/park-scores.geojson', { cache: 'no-cache' });
+        if (res.ok) parkScores = new Map((await res.json()).features.map((f) => [f.properties.id, f]));
+      } catch (err) { /* the map works without them */ }
+      map.addSource('park-area', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+      map.addLayer({ id: 'park-area-fill', type: 'fill', source: 'park-area', filter: ['!=', ['geometry-type'], 'LineString'],
+        paint: { 'fill-color': '#2e7d32', 'fill-opacity': 0.08 } });
+      map.addLayer({ id: 'park-area-line', type: 'line', source: 'park-area',
+        paint: { 'line-color': '#2e7d32', 'line-width': ['case', ['==', ['geometry-type'], 'LineString'], 6, 2], 'line-opacity': 0.55,
+          'line-dasharray': [2, 1.5] } });
 
       // Step 1: Give each park a simple "level" (Gentle, Steady…) for pin colors
       data.features.forEach((f) => {

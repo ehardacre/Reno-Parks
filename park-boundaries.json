@@ -1,0 +1,4 @@
+{
+  "_help": "Hand fixes for matching parks.geojson to OpenStreetMap, keyed by park id. Use one of: {\"osm\": [\"way/123\", \"relation/456\"]} to name the exact OSM outlines; {\"trail\": \"Steamboat Ditch Trail\"} to use segments with that name near the pin; {\"radius_m\": 600} to use a circle around the pin. Add an optional \"note\". Rerun `npm run build:parks` after editing.",
+  "overrides": {}
+}

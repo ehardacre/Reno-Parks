@@ -15,7 +15,7 @@ are left out; every segment and field is in the street-level (zoom 14) tiles.
 
 ```bash
 npm install
-npm run build:network   # writes data/tiles/, data/places.geojson, data/network-meta.json
+npm run build           # network (data/tiles/, places, meta), then park scores
 ```
 
 Commit the `data/` folder afterwards so the published site picks it up. Downloads are
@@ -43,6 +43,24 @@ Limits to keep in mind: the canopy imagery is mostly from 2018–2020; the eleva
 ~7 m resolution, so short steep pitches can read low; and amenities are only as complete as
 OpenStreetMap. Most access roads (parking lots, alleys, driveways) have no access tags at
 all, so "may be private" means unknown, not closed. Fixing OSM fixes the map on the next build.
+
+### Park scores
+
+`npm run build:parks` (or `npm run build` for both steps) scores each park in
+`parks.geojson` on its walking resources, using what the network build left in `data/cache/`.
+It writes `data/park-scores.geojson`, which the map uses to outline the selected park and
+add a "Walking resources" section to its details page.
+
+Each park's area is, in order: a hand fix in `park-boundaries.json`; OpenStreetMap park
+outlines whose name matches, near the park's pin; footpaths carrying the park's name (for
+trails); or, failing those, 400 m around the pin (shown as approximate). Segments with at
+least half their length inside the area belong to the park.
+
+The score (0–100) weighs shade 20, gentle grades 20, rest stops per km 15, restrooms 10,
+km of paths 15, loop options 10, and viewpoints, sights and water 10. Weights and the
+"plenty" levels are at the top of `scripts/lib/park-score.js`. The build prints a table and
+lists parks worth a look: approximate matches, and places where OSM and the printed guide
+disagree about restrooms or benches.
 
 ### Licensing
 
