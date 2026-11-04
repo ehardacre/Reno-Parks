@@ -505,6 +505,7 @@
 (() => {
   const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const GREY = '#b5b5b5';
+  const num = (k) => ['coalesce', ['get', k], 0];
 
   // Each "color by" mode: a MapLibre color expression plus its legend.
   const MODES = {
@@ -514,15 +515,15 @@
       legend: [['#dcc99a', 'Under 25% shaded'], ['#a9c47f', '25–49%'], ['#5f9e4f', '50–74%'], ['#2e6b30', '75%+ (tree-lined)'], [GREY, 'No canopy data']],
     },
     amenities: {
-      color: ['step', ['coalesce', ['get', 'n_amenities'], 0], '#d0d0d0', 1, '#8fbbe0', 2, '#3d8bc9', 4, '#1d4f91'],
+      color: ['step', num('n_amenities'), '#d0d0d0', 1, '#8fbbe0', 2, '#3d8bc9', 4, '#1d4f91'],
       legend: [['#d0d0d0', 'None nearby'], ['#8fbbe0', '1 bench, restroom, water or shelter'], ['#3d8bc9', '2–3'], ['#1d4f91', '4+']],
     },
     scenery: {
       color: ['case',
-        ['>', ['coalesce', ['get', 'n_viewpoint'], 0], 0], '#7c4ab0',
-        ['>=', ['coalesce', ['get', 'water_pct'], 0], 50], '#2274a5',
-        ['>=', ['coalesce', ['get', 'park_pct'], 0], 50], '#2e7d32',
-        ['>', ['coalesce', ['get', 'n_poi'], 0], 0], '#bd6525',
+        ['>', num('n_viewpoint'), 0], '#7c4ab0',
+        ['>=', num('water_pct'), 50], '#2274a5',
+        ['>=', num('park_pct'), 50], '#2e7d32',
+        ['>', num('n_poi'), 0], '#bd6525',
         '#d0d0d0'],
       legend: [['#7c4ab0', 'Passes a viewpoint'], ['#2274a5', 'Mostly by water'], ['#2e7d32', 'Mostly in a park'], ['#bd6525', 'Passes art, history or a sight'], ['#d0d0d0', 'None of these']],
     },
@@ -531,9 +532,14 @@
         ['step', ['get', 'grade_max_pct'], COMFORT_COLORS.Gentle, 3, COMFORT_COLORS.Steady, 5, COMFORT_COLORS.Moderate, 8, COMFORT_COLORS.Adventurous]],
       legend: [[COMFORT_COLORS.Gentle, 'Under 3% at its steepest'], [COMFORT_COLORS.Steady, '3–5%'], [COMFORT_COLORS.Moderate, '5–8%'], [COMFORT_COLORS.Adventurous, '8%+'], [GREY, 'Bridge or tunnel (not measured)']],
     },
-    status: {
-      color: ['match', ['get', 'status'], 'candidate', '#23875f', 'review', '#d18a18', '#787878'],
-      legend: [['#23875f', 'Dedicated walking path'], ['#d18a18', 'Street or shared path: check for sidewalks']],
+    walk: {
+      color: ['match', ['get', 'walk_access'], 'yes', '#23875f', 'street', '#7f9bb0', 'limited', '#d18a18', 'untagged', '#c9572c', GREY],
+      legend: [['#23875f', 'Open to walkers (footpath, or tagged open)'], ['#7f9bb0', 'Public street: check for sidewalks'],
+        ['#d18a18', 'Customers or destination only'], ['#c9572c', 'Access road, no access tags: may be private']],
+    },
+    type: {
+      color: ['case', ['==', ['get', 'status'], 'candidate'], '#23875f', ['==', ['get', 'highway'], 'service'], '#c9572c', '#7f9bb0'],
+      legend: [['#23875f', 'Dedicated walking path'], ['#c9572c', 'Access road (parking lot, alley, driveway)'], ['#7f9bb0', 'Street or shared path']],
     },
     surface: {
       color: ['match', ['coalesce', ['get', 'surface'], 'unknown'],
@@ -544,6 +550,8 @@
   };
   const PLACE_COLOR = { amenity: '#2274a5', viewpoint: '#7c4ab0', poi: '#bd6525' };
   const PLURAL = { n_bench: ['bench', 'benches'], n_toilets: ['restroom', 'restrooms'], n_water: ['drinking water', 'drinking water'], n_shelter: ['shelter', 'shelters'], n_picnic: ['picnic table', 'picnic tables'] };
+  const ACCESS_TEXT = { yes: 'Open to walkers', street: 'Public street (no sidewalk info unless tagged)', limited: 'Customers or destination only', untagged: 'No access tags: may be private' };
+  const FULL_ZOOM = 14; // tiles at this zoom and closer carry every field
 
   const box = document.createElement('details');
   box.id = 'osm-panel';
@@ -559,12 +567,14 @@
         <option value="amenities">Amenities along the way</option>
         <option value="scenery">Water, parks and viewpoints</option>
         <option value="slope">Slope</option>
-        <option value="status">Path type</option>
+        <option value="walk">Open to walkers?</option>
+        <option value="type">Path type</option>
         <option value="surface">Surface</option>
       </select></label>
-      <label>Include <select id="net-access">
-        <option value="candidate">Dedicated walking paths only</option>
-        <option value="possible">Paths and streets (larger download)</option>
+      <label>Include <select id="net-include">
+        <option value="paths">Dedicated walking paths</option>
+        <option value="access">Paths and access roads</option>
+        <option value="all">Paths, access roads and streets</option>
       </select></label>
       <label>Shade <select id="net-shade">
         <option value="0">Any</option><option value="25">At least 25%</option><option value="50">At least 50%</option><option value="75">At least 75%</option>
@@ -580,33 +590,35 @@
   document.body.append(box);
   const $ = (id) => document.getElementById('net-' + id);
 
-  let segments = new Map(), places = new Map(), all = [];
+  const places = new Map();
+  let selected = null;
 
-  // The same filter, as a JS predicate (for stats) and a MapLibre expression (for drawing).
-  const filters = () => ({ access: $('access').value, shade: Number($('shade').value), grade: Number($('grade').value) });
-  function passes(p, f) {
-    return (f.access !== 'candidate' || p.status === 'candidate') &&
-      (f.shade === 0 || (p.shade_pct ?? -1) >= f.shade) &&
-      (!isFinite(f.grade) || (p.grade_max_pct ?? 0) < f.grade);
-  }
-  function filterExpr(f) {
+  function filterExpr() {
     const parts = ['all'];
-    if (f.access === 'candidate') parts.push(['==', ['get', 'status'], 'candidate']);
-    if (f.shade > 0) parts.push(['>=', ['coalesce', ['get', 'shade_pct'], -1], f.shade]);
-    if (isFinite(f.grade)) parts.push(['<', ['coalesce', ['get', 'grade_max_pct'], 0], f.grade]);
+    const include = $('include').value, shade = Number($('shade').value), grade = Number($('grade').value);
+    if (include === 'paths') parts.push(['==', ['get', 'status'], 'candidate']);
+    if (include === 'access') parts.push(['any', ['==', ['get', 'status'], 'candidate'], ['==', ['get', 'highway'], 'service']]);
+    if (shade > 0) parts.push(['>=', ['coalesce', ['get', 'shade_pct'], -1], shade]);
+    if (isFinite(grade)) parts.push(['<', ['coalesce', ['get', 'grade_max_pct'], 0], grade]);
     return parts;
+  }
+
+  // Summarize what's on screen. Tiles split long segments, so count each one once.
+  function updateStats() {
+    const seen = new Map();
+    for (const f of map.queryRenderedFeatures({ layers: ['net-lines'] })) seen.set(f.properties.sid, f.properties.length_m || 0);
+    const km = [...seen.values()].reduce((a, b) => a + b, 0) / 1000;
+    const zoomedOut = map.getZoom() < 13.5;
+    $('stats').textContent = `In view: ${seen.size.toLocaleString()} segments · ${km < 10 ? km.toFixed(1) : Math.round(km)} km.` +
+      (zoomedOut ? ' Zoomed out, short pieces, sidewalks and access roads are hidden; zoom in to see everything.' : '');
   }
 
   function repaint() {
     const mode = MODES[$('color').value];
     map.setPaintProperty('net-lines', 'line-color', mode.color);
     $('legend').innerHTML = mode.legend.map(([c, l]) => `<div class="net-key"><span style="background:${c}"></span>${esc(l)}</div>`).join('');
-    const f = filters();
-    for (const id of ['net-lines', 'net-hit']) map.setFilter(id, filterExpr(f));
-    const shown = all.filter((s) => passes(s.properties, f));
-    const km = shown.reduce((t, s) => t + s.properties.length_m, 0) / 1000;
-    $('stats').textContent = `${shown.length.toLocaleString()} segments · ${Math.round(km).toLocaleString()} km shown`;
-    map.getSource('net-selection').setData({ type: 'FeatureCollection', features: [] });
+    for (const id of ['net-lines', 'net-hit']) map.setFilter(id, filterExpr());
+    map.once('idle', updateStats);
   }
 
   const pct = (v) => (v == null ? 'no data' : `${v}%`);
@@ -615,23 +627,25 @@
     return p ? `<li>${esc(p.label)}${p.name ? `: ${esc(p.name)}` : ''}</li>` : '';
   };
 
-  function segmentHTML(f) {
-    const p = f.properties;
+  function segmentHTML(p, full) {
     const counts = Object.entries(PLURAL).filter(([k]) => p[k]).map(([k, [one, many]]) => `${p[k]} ${p[k] === 1 ? one : many}`);
-    const tagRows = ['highway', 'surface', 'smoothness', 'width', 'lit', 'sidewalk', 'footway', 'wheelchair', 'incline', 'sac_scale', 'informal', 'access', 'foot', 'bridge', 'tunnel']
+    const kind = p.status === 'candidate' ? 'walking path' : p.highway === 'service' ? `access road${p.service ? ` (${esc(p.service.replace(/_/g, ' '))})` : ''}` : 'street or shared path';
+    const tagRows = ['highway', 'service', 'foot', 'access', 'sidewalk', 'surface', 'smoothness', 'width', 'lit', 'footway', 'wheelchair', 'incline', 'sac_scale', 'informal', 'bridge', 'tunnel']
       .filter((k) => p[k] !== undefined).map((k) => `<tr><th>${k}</th><td>${esc(p[k])}</td></tr>`).join('');
+    const pois = p.poi_ids ? String(p.poi_ids).split(',') : [];
     return `<h3>${esc(p.name || p.highway)}</h3>
-      <p>${Math.round(p.length_m)} m · ${p.status === 'candidate' ? 'walking path' : 'street or shared path'}</p>
+      <p>${Math.round(p.length_m)} m · ${kind}</p>
       <table>
+        <tr><th>Walkers</th><td>${esc(ACCESS_TEXT[p.walk_access] || 'unknown')}</td></tr>
         <tr><th>Shade</th><td>${pct(p.shade_pct)} of the way under trees</td></tr>
-        <tr><th>Steepest</th><td>${p.grade_max_pct == null ? 'not measured' : `${p.grade_max_pct}% grade · ↑${Math.round(p.climb_m ?? 0)} m ↓${Math.round(p.descent_m ?? 0)} m`}</td></tr>
+        <tr><th>Steepest</th><td>${p.grade_max_pct == null ? 'not measured' : `${p.grade_max_pct}% grade${full ? ` · ↑${Math.round(p.climb_m ?? 0)} m ↓${Math.round(p.descent_m ?? 0)} m` : ''}`}</td></tr>
         <tr><th>By water</th><td>${pct(p.water_pct ?? 0)}</td></tr>
         <tr><th>In a park</th><td>${pct(p.park_pct ?? 0)}${p.park ? ` (${esc(p.park)})` : ''}</td></tr>
-        <tr><th>Amenities</th><td>${counts.length ? counts.join(', ') : 'none mapped nearby'}</td></tr>
+        <tr><th>Amenities</th><td>${full ? (counts.length ? counts.join(', ') : 'none mapped nearby') : `${p.n_amenities || 0} nearby`}</td></tr>
       </table>
-      ${p.poi_ids ? `<h4>Along the way</h4><ul>${p.poi_ids.map(placeLine).join('')}</ul>` : ''}
-      <h4>OpenStreetMap tags</h4><table>${tagRows}</table>
-      <p><a href="https://www.openstreetmap.org/way/${String(p.sid).split(':')[0]}" target="_blank" rel="noopener">View or fix in OpenStreetMap ↗</a></p>`;
+      ${pois.length ? `<h4>Along the way</h4><ul>${pois.map(placeLine).join('')}</ul>` : ''}
+      ${full ? `<h4>OpenStreetMap tags</h4><table>${tagRows}</table>` : '<p><i>Zoom in closer for nearby places and OSM tags.</i></p>'}
+      <p><a href="https://www.openstreetmap.org/way/${esc(String(p.sid).split(':')[0])}" target="_blank" rel="noopener">View or fix in OpenStreetMap ↗</a></p>`;
   }
 
   function placeHTML(f) {
@@ -643,7 +657,6 @@
   }
 
   function sourcesHTML(meta) {
-    if (!meta) return '';
     const built = new Date(meta.built_at).toLocaleDateString();
     return `Built ${esc(built)}. ` + meta.sources.map((s) => `<a href="${esc(s.url)}" target="_blank" rel="noopener">${esc(s.attribution)}</a>${s.snapshot ? ` (data as of ${esc(String(s.snapshot).slice(0, 10))})` : ''}${s.note ? `. ${esc(s.note)}` : ''}`).join('. ') +
       '. Streets are mapped down the middle, so check for sidewalks. Verify conditions before a visit.';
@@ -656,34 +669,30 @@
   }
 
   map.on('load', async () => {
-    let network, placeData, meta;
+    let meta, placeData;
     try {
-      [network, placeData, meta] = await Promise.all([
-        getJSON('data/walking-paths.geojson'), getJSON('data/places.geojson'), getJSON('data/network-meta.json').catch(() => null),
-      ]);
+      [meta, placeData] = await Promise.all([getJSON('data/network-meta.json'), getJSON('data/places.geojson')]);
+      if (!meta.tiles) throw Object.assign(Error('built before tiles were added'), { status: 404 });
     } catch (err) {
       $('status').innerHTML = err.status === 404
         ? 'No walking network has been built yet. Run <code>npm install</code> then <code>npm run build:network</code> and commit the <code>data/</code> folder.'
         : `Could not load the walking network: ${esc(err.message)}`;
       return;
     }
-    // MapLibre drops string ids, so carry them as properties for lookups on click.
-    const addSegments = (features) => {
-      for (const f of features) { f.properties.sid = f.id; segments.set(f.id, f); }
-      all = all.concat(features);
-    };
-    addSegments(network.features);
     for (const f of placeData.features) { f.properties.pid = f.id; places.set(f.id, f); }
 
-    const attribution = '<a href="https://www.openstreetmap.org/copyright" target="_blank">© OpenStreetMap</a> · canopy © Meta &amp; WRI';
-    map.addSource('net', { type: 'geojson', data: network, attribution });
+    const tileURL = new URL('data/tiles/{z}/{x}/{y}.pbf', location.href).href.replace(/%7B/g, '{').replace(/%7D/g, '}');
+    map.addSource('net', {
+      type: 'vector', tiles: [tileURL], minzoom: meta.tiles.minzoom, maxzoom: meta.tiles.maxzoom,
+      attribution: '<a href="https://www.openstreetmap.org/copyright" target="_blank">© OpenStreetMap</a> · canopy © Meta &amp; WRI',
+    });
     map.addSource('net-places', { type: 'geojson', data: placeData });
-    map.addSource('net-selection', { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
     const before = map.getLayer('clusters') ? 'clusters' : undefined; // keep park pins on top
+    const line = { source: 'net', 'source-layer': meta.tiles.layer };
     const width = ['interpolate', ['linear'], ['zoom'], 10, 1, 13, 2.5, 16, 6];
-    map.addLayer({ id: 'net-lines', type: 'line', source: 'net', layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-width': width, 'line-opacity': 0.9 } }, before);
-    map.addLayer({ id: 'net-highlight', type: 'line', source: 'net-selection', paint: { 'line-color': '#ec27d8', 'line-width': 8, 'line-opacity': 0.7 } }, before);
-    map.addLayer({ id: 'net-hit', type: 'line', source: 'net', paint: { 'line-width': 14, 'line-opacity': 0 } }, before);
+    map.addLayer({ id: 'net-lines', type: 'line', ...line, layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-width': width, 'line-opacity': 0.9 } }, before);
+    map.addLayer({ id: 'net-highlight', type: 'line', ...line, filter: ['==', ['get', 'sid'], ''], paint: { 'line-color': '#ec27d8', 'line-width': 8, 'line-opacity': 0.7 } }, before);
+    map.addLayer({ id: 'net-hit', type: 'line', ...line, paint: { 'line-width': 14, 'line-opacity': 0 } }, before);
     map.addLayer({ id: 'net-place-dots', type: 'circle', source: 'net-places', minzoom: 13,
       paint: { 'circle-color': ['match', ['get', 'category'], 'amenity', PLACE_COLOR.amenity, 'viewpoint', PLACE_COLOR.viewpoint, PLACE_COLOR.poi],
         'circle-radius': ['interpolate', ['linear'], ['zoom'], 13, 3, 17, 6], 'circle-stroke-color': '#fff', 'circle-stroke-width': 1.5 } }, before);
@@ -694,24 +703,8 @@
     const setVisible = (ids, on) => ids.forEach((id) => map.setLayoutProperty(id, 'visibility', on ? 'visible' : 'none'));
     $('show').onchange = () => setVisible(['net-lines', 'net-hit', 'net-highlight'], $('show').checked);
     $('places').onchange = () => setVisible(['net-place-dots', 'net-place-labels'], $('places').checked);
-    for (const id of ['color', 'shade', 'grade']) $(id).onchange = repaint;
-    // Streets are a separate, larger file, fetched the first time they're asked for.
-    let streets = null;
-    $('access').onchange = async () => {
-      if ($('access').value === 'possible' && !streets) {
-        $('stats').textContent = 'Loading streets…';
-        try {
-          streets = await getJSON('data/walking-streets.geojson');
-        } catch (err) {
-          $('stats').textContent = `Could not load streets: ${esc(err.message)}`;
-          $('access').value = 'candidate';
-          return;
-        }
-        addSegments(streets.features);
-        map.getSource('net').setData({ type: 'FeatureCollection', features: all });
-      }
-      repaint();
-    };
+    for (const id of ['color', 'include', 'shade', 'grade']) $(id).onchange = repaint;
+    map.on('moveend', () => map.once('idle', updateStats));
 
     map.on('click', 'net-place-dots', (e) => {
       const f = places.get(e.features[0].properties.pid);
@@ -720,10 +713,10 @@
     map.on('click', 'net-hit', (e) => {
       // Park pins and place dots win when they overlap a path.
       if (map.queryRenderedFeatures(e.point, { layers: ['park-points', 'clusters', 'net-place-dots'].filter((l) => map.getLayer(l)) }).length) return;
-      const f = segments.get(e.features[0].properties.sid);
-      if (!f) return;
-      map.getSource('net-selection').setData({ type: 'FeatureCollection', features: [f] });
-      $('inspect').innerHTML = segmentHTML(f);
+      const p = e.features[0].properties;
+      selected = p.sid;
+      map.setFilter('net-highlight', ['==', ['get', 'sid'], selected]);
+      $('inspect').innerHTML = segmentHTML(p, map.getZoom() >= FULL_ZOOM);
       box.open = true;
     });
     for (const layer of ['net-hit', 'net-place-dots']) {
@@ -731,7 +724,7 @@
       map.on('mouseleave', layer, () => (map.getCanvas().style.cursor = ''));
     }
 
-    $('status').textContent = `${placeData.features.length.toLocaleString()} amenities and places.`;
+    $('status').textContent = `${meta.counts.segments.toLocaleString()} path segments · ${placeData.features.length.toLocaleString()} amenities and places.`;
     $('controls').hidden = false;
     $('sources').innerHTML = sourcesHTML(meta);
     repaint();

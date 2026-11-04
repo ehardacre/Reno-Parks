@@ -35,9 +35,12 @@ const network = {
 const segs = () => buildSegments(network).segments;
 const byId = (list) => Object.fromEntries(list.map((s) => [s.id, s]));
 
-test('segments split ways at junctions and drop restricted ways and driveways', () => {
+test('segments split ways at junctions, keep access roads and drop restricted ways', () => {
   const s = byId(segs());
-  assert.deepEqual(Object.keys(s).sort(), ['100:0', '100:2', '200:0', '400:0']);
+  assert.deepEqual(Object.keys(s).sort(), ['100:0', '100:2', '200:0', '400:0', '500:0']);
+  assert.equal(s['100:0'].properties.walk_access, 'yes');
+  assert.equal(s['400:0'].properties.walk_access, 'street');
+  assert.equal(s['500:0'].properties.walk_access, 'untagged');
   assert.equal(s['100:0'].geometry.coordinates.length, 3);
   assert.equal(s['100:0'].properties.from, 1);
   assert.equal(s['100:0'].properties.to, 3);
@@ -176,21 +179,32 @@ test('build script writes network, places and metadata from saved Overpass files
     '--network', path.join(dir, 'network.json'), '--features', path.join(dir, 'features.json'),
     '--no-canopy', '--no-elevation', '--out', path.join(dir, 'out')], { stdio: 'pipe' });
   const read = (f) => JSON.parse(fs.readFileSync(path.join(dir, 'out', f), 'utf8'));
-  const paths = read('walking-paths.geojson'), streets = read('walking-streets.geojson');
-  const net = { features: paths.features.concat(streets.features) };
   const places = read('places.geojson'), meta = read('network-meta.json');
-  assert.deepEqual(paths.features.map((f) => f.id).sort(), ['100:0', '100:2', '200:0']);
-  assert.deepEqual(streets.features.map((f) => f.id), ['400:0']);
-  assert.equal(net.features.length, 4);
+  const full = read('cache/walking-network-full.geojson');
+  assert.equal(full.features.length, 5);
   assert.equal(places.features.length, 6);
-  assert.equal(meta.counts.segments, 4);
+  assert.equal(meta.counts.segments, 5);
   assert.deepEqual(meta.sources.map((s) => s.name), ['OpenStreetMap']);
-  const seg = net.features.find((f) => f.id === '100:2');
-  assert.equal(seg.properties.n_shelter, 1);
-  // Web output drops graph bookkeeping and zero counts, but keeps "not measured".
-  assert.equal(seg.properties.way_id, undefined);
-  assert.equal(seg.properties.n_toilets, undefined);
-  assert.equal(seg.properties.n_picnic, undefined);
+  assert.equal(meta.tiles.minzoom, 8);
+  assert.equal(meta.tiles.maxzoom, 14);
+  assert.equal(fs.existsSync(path.join(dir, 'out', 'walking-paths.geojson')), false);
+
+  // Decode the street-level tile holding the footway and check what it carries.
+  const { VectorTile } = require('@mapbox/vector-tile'), Pbf = require('pbf');
+  const z = 14, n = 2 ** z, [lon, lat] = at(150, 0);
+  const x = Math.floor(((lon + 180) / 360) * n);
+  const y = Math.floor(((1 - Math.log(Math.tan((lat * Math.PI) / 180) + 1 / Math.cos((lat * Math.PI) / 180)) / Math.PI) / 2) * n);
+  const tile = new VectorTile(new Pbf(fs.readFileSync(path.join(dir, 'out', 'tiles', `${z}/${x}/${y}.pbf`))));
+  const layer = tile.layers.paths;
+  const props = Array.from({ length: layer.length }, (_, i) => layer.feature(i).properties);
+  const seg = props.find((p) => p.sid === '100:2');
+  assert.equal(seg.n_shelter, 1);
+  assert.equal(seg.poi_ids, undefined);
+  assert.equal(props.find((p) => p.sid === '100:0').poi_ids, 'n1003:viewpoint'); // lists become strings
+  // Web output drops graph bookkeeping and zero counts.
+  assert.equal(seg.way_id, undefined);
+  assert.equal(seg.n_toilets, undefined);
+  assert.ok(props.some((p) => p.sid === '500:0')); // access road present at street level
   fs.rmSync(dir, { recursive: true });
 });
 
@@ -200,4 +214,30 @@ test('web features drop zeros and bookkeeping, round coordinates, keep shade and
     properties: { way_id: 7, from: 1, to: 2, component: 1, highway: 'path', n_bench: 0, n_water: 2, shade_pct: 0, grade_max_pct: null, climb_m: null } });
   assert.deepEqual(f.properties, { highway: 'path', n_water: 2, shade_pct: 0, grade_max_pct: null });
   assert.deepEqual(f.geometry.coordinates, [[-119.8, 39.5], [-119.8, 39.5]]); // duplicates collapse but stay drawable
+});
+
+test('walker access reads foot first, then access', () => {
+  const { walkAccess } = require('../scripts/lib/segments');
+  assert.equal(walkAccess({ highway: 'service', foot: 'yes', access: 'private' }), 'yes');
+  assert.equal(walkAccess({ highway: 'service', access: 'customers' }), 'limited');
+  assert.equal(walkAccess({ highway: 'service', foot: 'destination', access: 'yes' }), 'limited');
+  assert.equal(walkAccess({ highway: 'service', access: 'yes' }), 'yes');
+  assert.equal(walkAccess({ highway: 'service', service: 'parking_aisle' }), 'untagged');
+  assert.equal(walkAccess({ highway: 'footway' }), 'yes');
+  assert.equal(walkAccess({ highway: 'residential' }), 'street');
+});
+
+test('zoomed-out tiles leave out small pieces and access roads', () => {
+  const { BANDS, tileProperties } = require('../scripts/lib/tiles');
+  const band = (z) => BANDS.find((b) => z >= b.zooms[0] && z <= b.zooms[1]);
+  const aisle = { highway: 'service', service: 'parking_aisle', status: 'review', length_m: 80 };
+  const alley = { highway: 'service', service: 'alley', status: 'review', length_m: 80 };
+  const trail = { highway: 'path', status: 'candidate', length_m: 150 };
+  assert.ok(band(14).keep(aisle, 80) && band(13).keep(alley, 80) && !band(13).keep(aisle, 80) && !band(12).keep(alley, 80));
+  // A short piece of a long trail stays; a short trail on its own drops out.
+  assert.ok(band(10).keep({ ...trail, length_m: 20 }, 2000) && !band(10).keep({ ...trail, length_m: 60 }, 60));
+  assert.ok(band(8).keep(trail, 1500) && !band(8).keep(trail, 500));
+  const slim = tileProperties({ id: '1:0', properties: { name: 'X', surface: 'gravel', lit: 'yes', poi_ids: ['a', 'b'] } }, false);
+  assert.deepEqual(slim, { name: 'X', surface: 'gravel', sid: '1:0' });
+  assert.equal(tileProperties({ id: '1:0', properties: { poi_ids: ['a', 'b'] } }, true).poi_ids, 'a,b');
 });

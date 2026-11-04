@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 // Build the prebuilt walking network the map loads:
-//   data/walking-paths.geojson    dedicated walking paths with shade, slope, amenities, scenery
-//   data/walking-streets.geojson  streets and shared paths, same measures (loaded on demand)
+//   data/tiles/{z}/{x}/{y}.pbf    vector tiles of the network: shade, slope, amenities, scenery
+//   data/cache/walking-network-full.geojson  the same segments with every field (not committed)
 //   data/places.geojson           benches, restrooms, water, viewpoints, points of interest
 //   data/network-meta.json        sources, snapshot dates, filters, counts
 //
@@ -25,6 +25,7 @@ const { enrichPlaces, enrichAreas } = require('./lib/enrich');
 const { enrichCanopy, metaCanopySource } = require('./lib/canopy');
 const { enrichElevation, terrariumSource } = require('./lib/elevation');
 const { webFeature } = require('./lib/web');
+const { writeTiles } = require('./lib/tiles');
 
 const ROOT = path.join(__dirname, '..');
 const DEFAULT_BBOX = [39.35, -120.03, 39.72, -119.65];
@@ -138,18 +139,21 @@ async function main() {
     console.log(`  wrote ${path.relative(process.cwd(), file)} (${(fs.statSync(file).size / 1e6).toFixed(1)} MB)`);
   };
   console.log('Writing output…');
-  // Split so the map can load dedicated paths first and fetch streets only when asked.
-  const web = segments.map(webFeature);
-  write('walking-paths.geojson', featureCollection(web.filter((f) => f.properties.status === 'candidate')));
-  write('walking-streets.geojson', featureCollection(web.filter((f) => f.properties.status !== 'candidate')));
-  const old = path.join(opts.out, 'walking-network.geojson');
-  if (fs.existsSync(old)) fs.unlinkSync(old); // replaced by the two files above
+  // Full-detail copy for later work such as route building; too big to publish.
+  const fullDir = path.join(opts.out, 'cache');
+  fs.mkdirSync(fullDir, { recursive: true });
+  fs.writeFileSync(path.join(fullDir, 'walking-network-full.geojson'), JSON.stringify(featureCollection(segments)));
+  console.log('Writing vector tiles…');
+  const tiles = writeTiles(segments.map(webFeature), path.join(opts.out, 'tiles'), { log: console.log });
+  // Earlier builds wrote the network as GeoJSON; the tiles replace those files.
+  for (const old of ['walking-network.geojson', 'walking-paths.geojson', 'walking-streets.geojson']) fs.rmSync(path.join(opts.out, old), { force: true });
   write('places.geojson', featureCollection(places));
   write('network-meta.json', {
     built_at: new Date().toISOString(),
     bbox: opts.bbox,
     statuses: opts.statuses,
     counts: { segments: segments.length, nodes: nodeCount, components: componentCount, places: places.length },
+    tiles,
     method: {
       shade: 'Share of points every 5 m where ≥20% of a 5 m disk (9 m on roads) has canopy ≥3 m tall.',
       slope: 'Steepest grade over any 30 m stretch, from elevation sampled every 10 m. Bridges and tunnels are left blank.',
