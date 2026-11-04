@@ -9,8 +9,9 @@ The site is static: `index.html` loads `parks.geojson` and the prebuilt files in
 
 `scripts/build-network.js` builds the network once, ahead of time, so the page loads prebuilt
 vector tiles instead of querying OpenStreetMap in the browser. A phone downloads only the
-tiles on screen. Zoomed out, short pieces, sidewalks and access roads are left out; every
-segment and field is in the street-level (zoom 14) tiles.
+tiles on screen. Paths appear from neighborhood zoom (13) inward; zoomed out further, the map
+shows just the parks. At zoom 13 parking aisles, driveways, crosswalks and pieces under 15 m
+are left out; every segment and field is in the street-level (zoom 14) tiles.
 
 ```bash
 npm install

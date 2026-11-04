@@ -185,7 +185,7 @@ test('build script writes network, places and metadata from saved Overpass files
   assert.equal(places.features.length, 6);
   assert.equal(meta.counts.segments, 5);
   assert.deepEqual(meta.sources.map((s) => s.name), ['OpenStreetMap']);
-  assert.equal(meta.tiles.minzoom, 8);
+  assert.equal(meta.tiles.minzoom, 13);
   assert.equal(meta.tiles.maxzoom, 14);
   assert.equal(fs.existsSync(path.join(dir, 'out', 'walking-paths.geojson')), false);
 
@@ -227,16 +227,14 @@ test('walker access reads foot first, then access', () => {
   assert.equal(walkAccess({ highway: 'residential' }), 'street');
 });
 
-test('zoomed-out tiles leave out small pieces and access roads', () => {
-  const { BANDS, tileProperties } = require('../scripts/lib/tiles');
+test('tiles start at zoom 13, without the smallest pieces until zoom 14', () => {
+  const { BANDS, tileProperties, MIN_ZOOM } = require('../scripts/lib/tiles');
   const band = (z) => BANDS.find((b) => z >= b.zooms[0] && z <= b.zooms[1]);
   const aisle = { highway: 'service', service: 'parking_aisle', status: 'review', length_m: 80 };
   const alley = { highway: 'service', service: 'alley', status: 'review', length_m: 80 };
-  const trail = { highway: 'path', status: 'candidate', length_m: 150 };
-  assert.ok(band(14).keep(aisle, 80) && band(13).keep(alley, 80) && !band(13).keep(aisle, 80) && !band(12).keep(alley, 80));
-  // A short piece of a long trail stays; a short trail on its own drops out.
-  assert.ok(band(10).keep({ ...trail, length_m: 20 }, 2000) && !band(10).keep({ ...trail, length_m: 60 }, 60));
-  assert.ok(band(8).keep(trail, 1500) && !band(8).keep(trail, 500));
+  assert.equal(MIN_ZOOM, 13);
+  assert.equal(band(12), undefined);
+  assert.ok(band(14).keep(aisle) && band(13).keep(alley) && !band(13).keep(aisle) && !band(13).keep({ ...alley, length_m: 10 }));
   const slim = tileProperties({ id: '1:0', properties: { name: 'X', surface: 'gravel', lit: 'yes', poi_ids: ['a', 'b'] } }, false);
   assert.deepEqual(slim, { name: 'X', surface: 'gravel', sid: '1:0' });
   assert.equal(tileProperties({ id: '1:0', properties: { poi_ids: ['a', 'b'] } }, true).poi_ids, 'a,b');

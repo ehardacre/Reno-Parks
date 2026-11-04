@@ -608,9 +608,10 @@
     const seen = new Map();
     for (const f of map.queryRenderedFeatures({ layers: ['net-lines'] })) seen.set(f.properties.sid, f.properties.length_m || 0);
     const km = [...seen.values()].reduce((a, b) => a + b, 0) / 1000;
-    const zoomedOut = map.getZoom() < 13.5;
+    if (map.getZoom() < 13) { $('stats').textContent = 'Zoom in to a neighborhood to see walking paths.'; return; }
+    const zoomedOut = map.getZoom() < 14;
     $('stats').textContent = `In view: ${seen.size.toLocaleString()} segments · ${km < 10 ? km.toFixed(1) : Math.round(km)} km.` +
-      (zoomedOut ? ' Zoomed out, short pieces, sidewalks and access roads are hidden; zoom in to see everything.' : '');
+      (zoomedOut ? ' Parking aisles, driveways and crosswalks appear when you zoom in further.' : '');
   }
 
   function repaint() {

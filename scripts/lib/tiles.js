@@ -2,9 +2,9 @@
 // Write the network as static vector tiles: data/tiles/{z}/{x}/{y}.pbf.
 //
 // A phone then downloads only the few tiles on screen instead of the whole network.
-// Zoomed out, small pieces are left out and only the fields used for coloring and
-// filtering are kept, the way tiling tools like tippecanoe do; everything is in the
-// street-level (zoom 14) tiles, which the map also uses for closer zooms.
+// At zoom 13 the smallest pieces are left out and only the fields used for coloring and
+// filtering are kept; everything is in the street-level (zoom 14) tiles, which the map
+// also uses for closer zooms.
 const fs = require('fs');
 const path = require('path');
 const geojsonvt = require('geojson-vt');
@@ -19,19 +19,13 @@ const STYLE_FIELDS = ['sid', 'name', 'status', 'highway', 'service', 'footway', 
   'shade_pct', 'grade_max_pct', 'n_amenities', 'n_viewpoint', 'n_poi', 'water_pct', 'park_pct'];
 
 const isMinorService = (p) => /^(parking_aisle|driveway|drive-through)$/.test(p.service || '');
-const isSidewalkBit = (p) => /^(crossing|sidewalk|traffic_island)$/.test(p.footway || '');
-
-const isMainWay = (p) => p.status === 'candidate' || /^(primary|secondary|tertiary|track)$/.test(p.highway);
 
 // Which segments appear at which zooms, and whether they carry all their fields.
-// Length tests use the whole OSM way (`way`), not the segment, so a long trail that
-// junctions chop into short pieces stays continuous when zoomed out.
+// Paths only matter once someone is looking at a neighborhood, so there are no tiles
+// below zoom 13; zoomed out, the map shows just the parks.
 const BANDS = [
   { zooms: [14, 14], full: true, keep: () => true },
   { zooms: [13, 13], keep: (p) => !isMinorService(p) && p.footway !== 'crossing' && p.length_m >= 15 },
-  { zooms: [12, 12], keep: (p, way) => p.highway !== 'service' && !isSidewalkBit(p) && way >= 100 },
-  { zooms: [10, 11], keep: (p, way) => p.highway !== 'service' && !isSidewalkBit(p) && way >= 300 && isMainWay(p) },
-  { zooms: [8, 9], keep: (p, way) => p.highway !== 'service' && p.highway !== 'tertiary' && !isSidewalkBit(p) && way >= 1000 && isMainWay(p) },
 ];
 const MIN_ZOOM = Math.min(...BANDS.map((b) => b.zooms[0]));
 
@@ -60,12 +54,9 @@ function tileRange(box, z) {
 function writeTiles(features, dir, { log = () => {} } = {}) {
   fs.rmSync(dir, { recursive: true, force: true });
   const box = bbox(features.flatMap((f) => f.geometry.coordinates));
-  const wayLength = new Map();
-  const wayOf = (f) => String(f.id).split(':')[0];
-  for (const f of features) wayLength.set(wayOf(f), (wayLength.get(wayOf(f)) || 0) + f.properties.length_m);
   const stats = [];
   for (const band of BANDS) {
-    const subset = features.filter((f) => band.keep(f.properties, wayLength.get(wayOf(f))))
+    const subset = features.filter((f) => band.keep(f.properties))
       .map((f) => ({ type: 'Feature', geometry: f.geometry, properties: tileProperties(f, band.full) }));
     const index = geojsonvt({ type: 'FeatureCollection', features: subset }, { maxZoom: band.zooms[1], indexMaxZoom: 0, tolerance: 3, buffer: 64 });
     for (let z = band.zooms[0]; z <= band.zooms[1]; z++) {
