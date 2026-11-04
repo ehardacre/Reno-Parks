@@ -1,0 +1,499 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#f7f5f0" />
+  <title>Healing Steps</title>
+
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@5/dist/maplibre-gl.js"></script>
+
+  <style>
+    /* ===== BASE ===== */
+    :root { --ink:#1b2a24; --muted:#6b7570; --bg:#f7f5f0; --line:#e3e0d8; --green:#2e7d32; }
+    html, body { margin:0; height:100%; overflow:hidden; color:var(--ink);
+                 font-family:system-ui, -apple-system, sans-serif; }
+    #map { position:fixed; inset:0; height:100dvh; }
+    .maplibregl-ctrl-group button { width:40px; height:40px; }
+
+    /* ===== BOTTOM SHEET ===== */
+    #sheet { position:fixed; left:0; right:0; bottom:0; height:85dvh; z-index:10;
+             background:var(--bg); border-radius:16px 16px 0 0;
+             box-shadow:0 -4px 20px rgba(0,0,0,.15);
+             display:flex; flex-direction:column; transition:transform .25s ease; }
+    #sheet.dragging { transition:none; }
+    #sheet-header { touch-action:none; padding:8px 16px 4px; cursor:grab; }
+    .handle { width:40px; height:5px; border-radius:3px; background:#c9c5bb; margin:0 auto 8px; }
+    #count { font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:.05em; }
+    #list { flex:1; overflow-y:auto; border-top:1px solid var(--line);
+            padding:0 16px calc(16px + env(safe-area-inset-bottom)); }
+
+    /* ===== PARK CARDS ===== */
+    .card { display:flex; gap:12px; padding:12px 0; }
+    .dot { flex:none; width:12px; height:12px; border-radius:50%; margin-top:5px; }
+    .name { font-weight:600; font-size:15px; cursor:pointer;
+            text-decoration:underline; text-decoration-color:var(--line); text-underline-offset:3px; }
+    .meta { font-size:13px; color:var(--muted); margin-top:2px; }
+    .tip { font-size:13px; font-style:italic; margin-top:4px; }
+    .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .chip { font-size:12px; background:#e9e6de; border-radius:10px; padding:3px 8px; }
+    .note { font-size:12px; margin-top:6px; }
+    .pending { color:#b3261e; }
+    .actions { display:flex; align-items:center; gap:16px; margin-top:10px; }
+    .details-btn { font-size:14px; font-weight:600; font-family:inherit; color:#fff;
+                   background:var(--green); border:none; border-radius:8px;
+                   padding:8px 18px; cursor:pointer; }
+    .dir { font-size:14px; font-weight:600; color:var(--green); text-decoration:none; }
+    .row { border-bottom:1px solid var(--line); cursor:pointer; }
+    .row.selected { background:#ecf3ec; margin:0 -16px; padding:0 16px; }
+    .empty { padding:12px 0; color:var(--muted); font-size:14px; }
+
+    /* ===== FULL-SCREEN DETAILS PAGE ===== */
+    #details { position:fixed; inset:0; z-index:20; background:var(--bg); overflow-y:auto;
+               transform:translateY(100%); transition:transform .25s ease; }
+    #details.open { transform:none; }
+    .d-top { position:sticky; top:0; z-index:1; background:var(--bg);
+             padding:calc(8px + env(safe-area-inset-top)) 12px 8px;
+             border-bottom:1px solid var(--line); display:flex; align-items:center; gap:8px; }
+    .back { width:40px; height:40px; border:none; background:none; font-size:24px;
+            cursor:pointer; color:var(--ink); }
+    .d-top-title { font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .d-body { padding:20px 16px calc(32px + env(safe-area-inset-bottom)); max-width:640px; margin:0 auto; }
+    .d-body h1 { font-size:26px; line-height:1.2; margin:0 0 4px; }
+    .d-sub { color:var(--muted); font-size:14px; }
+    .pill { display:inline-block; color:#fff; font-weight:600; font-size:13px;
+            border-radius:12px; padding:4px 12px; margin-top:14px; }
+    .d-section { margin-top:24px; }
+    .d-section h2 { font-size:13px; text-transform:uppercase; letter-spacing:.06em;
+                    color:var(--muted); margin:0 0 8px; }
+    .d-walk { font-size:17px; line-height:1.5; font-style:italic; }
+    .d-level { font-size:14px; line-height:1.5; margin:4px 0; }
+    .facts { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+    .fact { background:#fff; border:1px solid var(--line); border-radius:10px; padding:10px 12px; }
+    .fact.wide { grid-column:1 / -1; }
+    .fact-label { font-size:12px; color:var(--muted); }
+    .fact-value { font-size:15px; font-weight:600; margin-top:2px; }
+    .d-note { background:#fff; border-left:4px solid var(--green); border-radius:6px;
+              padding:10px 12px; font-size:14px; margin-top:10px; }
+    .d-note.warn { border-color:#b3261e; }
+    .btn-dir { display:block; text-align:center; background:var(--green); color:#fff;
+               font-weight:600; font-size:16px; text-decoration:none;
+               border-radius:12px; padding:14px; margin-top:24px; }
+    .d-fine { font-size:12px; color:var(--muted); margin-top:16px; text-align:center; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div id="sheet">
+    <div id="sheet-header">
+      <div class="handle"></div>
+      <div id="count">Loading…</div>
+      <div id="featured"></div>
+    </div>
+    <div id="list"></div>
+  </div>
+
+  <div id="details" aria-hidden="true"></div>
+
+  <script>
+    // ===== 1. MAP SETUP =====
+    const map = new maplibregl.Map({
+      container: 'map',
+      style: 'https://tiles.openfreemap.org/styles/bright',
+      center: [-119.81, 39.35],
+      zoom: 9.5,
+      attributionControl: false,
+      fadeDuration: 0          // labels appear/disappear instantly (no ghosting)
+    });
+
+    // Controls live at the top so the sheet doesn't cover them
+    map.addControl(new maplibregl.AttributionControl({ compact: true }), 'top-left');
+    map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-right');
+    map.addControl(new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true
+    }), 'top-right');
+
+    // ===== 2. COLORS + COMFORT LEVELS =====
+    const GROUP_INK = '#1b2a24';   // dark text for the group count
+    const GROUP_GREY = '#9a9a9a';  // grey outline for grouped pins
+    const COMFORT_COLORS = {
+      'Gentle': '#2e7d32', 'Steady': '#a07800',
+      'Moderate': '#c4521f', 'Adventurous': '#b3261e'
+    };
+    // What each rating means (from the printed guide)
+    const COMFORT_MEANING = {
+      'Gentle': 'Paved or firm surface, mostly flat, short route.',
+      'Steady': 'Mostly paved or firm; possible uneven spots or limited rest points.',
+      'Moderate': 'Dirt or gravel, mild slopes, longer distance.',
+      'Adventurous': 'Steeper, longer, or variable surface.'
+    };
+    // "Gentle–Steady" uses the first level
+    const levelOf = (comfort) => comfort.split('–')[0];
+    const colorFor = (comfort) => COMFORT_COLORS[levelOf(comfort)] || '#555';
+
+    // Same color lookup, written as a MapLibre expression for the map layers
+    const LEVEL_COLOR_EXPR = [
+      'match', ['get', 'level'],
+      'Gentle', COMFORT_COLORS.Gentle,
+      'Steady', COMFORT_COLORS.Steady,
+      'Moderate', COMFORT_COLORS.Moderate,
+      'Adventurous', COMFORT_COLORS.Adventurous,
+      '#555'
+    ];
+
+    const directionsURL = (f) => {
+      const [lng, lat] = f.geometry.coordinates;
+      return `https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`;
+    };
+
+    // ===== 3. APP STATE =====
+    let parks = [];        // all park features from parks.geojson
+    let selectedId = null; // the featured park (ids are internal only, never shown)
+
+    // ===== 4. BOTTOM SHEET: OPEN / CLOSE / DRAG =====
+    const sheet = document.getElementById('sheet');
+    const header = document.getElementById('sheet-header');
+    let expanded = false;
+
+    // How far down the sheet slides when collapsed (only the header peeks out)
+    const collapsedOffset = () => sheet.offsetHeight - header.offsetHeight;
+
+    function setSheet(open) {
+      expanded = open;
+      sheet.style.transform = `translateY(${open ? 0 : collapsedOffset()}px)`;
+      if (!open) document.getElementById('list').scrollTop = 0;
+    }
+
+    let startY = null, startOffset = 0, moved = false;
+
+    header.addEventListener('pointerdown', (e) => {
+      // Let links, buttons and park names handle their own taps
+      if (e.target.closest('a, button, .name')) return;
+      startY = e.clientY;
+      startOffset = expanded ? 0 : collapsedOffset();
+      moved = false;
+      sheet.classList.add('dragging');
+      header.setPointerCapture(e.pointerId);
+    });
+
+    header.addEventListener('pointermove', (e) => {
+      if (startY === null) return;
+      const dy = e.clientY - startY;
+      if (Math.abs(dy) > 5) moved = true;
+      const y = Math.min(Math.max(startOffset + dy, 0), collapsedOffset());
+      sheet.style.transform = `translateY(${y}px)`;
+    });
+
+    function endDrag(e) {
+      if (startY === null) return;
+      sheet.classList.remove('dragging');
+      const dy = e.clientY - startY;
+      startY = null;
+      if (!moved) return setSheet(!expanded);       // a tap toggles the sheet
+      setSheet(dy < -40 ? true : dy > 40 ? false : expanded);
+    }
+    header.addEventListener('pointerup', endDrag);
+    header.addEventListener('pointercancel', endDrag);
+    window.addEventListener('resize', () => setSheet(expanded));
+
+    // ===== 5. PARK CARD HTML =====
+    function cardHTML(f, full) {
+      const p = f.properties;
+      let html = `
+        <div class="card">
+          <div>
+            <div class="name" data-details="${p.id}">${p.name}</div>
+            <div class="meta">${p.comfort} · ${p.surface}</div>
+            <div class="tip">${p.tip}</div>`;
+      if (full) {
+        html += `
+            <div class="chips">
+              <span class="chip">Restrooms: ${p.restrooms}</span>
+              <span class="chip">Benches: ${p.benches}</span>
+              <span class="chip">Shade: ${p.shade}</span>
+              <span class="chip">Parking: ${p.parking}</span>
+            </div>
+            ${p.verified ? '' : '<div class="note pending">Newly added — pending field verification</div>'}
+            ${p.fitness_court ? '<div class="note">Has a free outdoor Fitness Court</div>' : ''}
+            <div class="actions">
+              <button class="details-btn" data-details="${p.id}">Details</button>
+              <a class="dir" target="_blank" href="${directionsURL(f)}">Directions →</a>
+            </div>`;
+      }
+      return html + `</div></div>`;
+    }
+
+    // ===== 6. WHICH PARKS ARE IN VIEW =====
+    // Parks inside the map frame, closest to the map center first
+    function visibleParks() {
+      const bounds = map.getBounds();
+      const c = map.getCenter();
+      const k = Math.cos(c.lat * Math.PI / 180);   // squash longitude so distances are fair
+      return parks
+        .filter((f) => bounds.contains(f.geometry.coordinates))
+        .map((f) => {
+          const [x, y] = f.geometry.coordinates;
+          return { f, d: ((x - c.lng) * k) ** 2 + (y - c.lat) ** 2 };
+        })
+        .sort((a, b) => a.d - b.d)
+        .map((o) => o.f);
+    }
+
+    // ===== 7. DRAW THE SHEET + HIGHLIGHT THE PIN =====
+    function render() {
+      const vis = visibleParks();
+
+      // Keep the current pick while it's on screen; otherwise feature the closest park
+      if (!vis.some((f) => f.properties.id === selectedId)) {
+        selectedId = vis.length ? vis[0].properties.id : null;
+      }
+
+      // Highlight the featured park's pin
+      if (map.getLayer('park-selected')) {
+        map.setFilter('park-selected', ['==', ['get', 'id'], selectedId ?? -1]);
+      }
+
+      document.getElementById('count').textContent =
+        vis.length === 1 ? '1 place in view' : `${vis.length} places in view`;
+
+      const sel = parks.find((f) => f.properties.id === selectedId);
+      document.getElementById('featured').innerHTML = sel
+        ? cardHTML(sel, true)
+        : '<div class="empty">No places in view — zoom out or move the map.</div>';
+
+      document.getElementById('list').innerHTML = vis.map((f) => `
+        <div class="row ${f.properties.id === selectedId ? 'selected' : ''}" data-id="${f.properties.id}">
+          ${cardHTML(f, false)}
+        </div>`).join('');
+
+      setSheet(expanded);   // header height may have changed
+    }
+
+    // ===== 8. SELECTING A PARK =====
+    function selectPark(id, fly) {
+      selectedId = id;
+      setSheet(false);
+      if (fly) {
+        const f = parks.find((p) => p.properties.id === id);
+        map.flyTo({
+          center: f.geometry.coordinates,
+          zoom: Math.max(map.getZoom(), 14),
+          offset: [0, -header.offsetHeight / 2]   // keep the pin above the sheet
+        });                                       // render() runs when the move ends
+      } else {
+        render();
+      }
+    }
+
+    // ===== 9. FULL-SCREEN DETAILS PAGE =====
+    const details = document.getElementById('details');
+
+    function detailsHTML(f) {
+      const p = f.properties;
+      const levels = p.comfort.split('–');   // "Gentle–Steady" -> both meanings
+      const fact = (label, value, wide) => `
+        <div class="fact ${wide ? 'wide' : ''}">
+          <div class="fact-label">${label}</div>
+          <div class="fact-value">${value}</div>
+        </div>`;
+
+      return `
+        <div class="d-top">
+          <button class="back" aria-label="Back to map">←</button>
+          <div class="d-top-title">${p.name}</div>
+        </div>
+        <div class="d-body">
+          <h1>${p.name}</h1>
+          <div class="d-sub">${p.manager} · ${p.region}</div>
+          <span class="pill" style="background:${colorFor(p.comfort)}">${p.comfort}</span>
+
+          <div class="d-section">
+            <h2>Suggested walk</h2>
+            <div class="d-walk">${p.tip}</div>
+          </div>
+
+          <div class="d-section">
+            <h2>What ${p.comfort} means</h2>
+            ${levels.map((l) => `<p class="d-level"><b>${l}:</b> ${COMFORT_MEANING[l] || ''}</p>`).join('')}
+          </div>
+
+          <div class="d-section">
+            <h2>At this location</h2>
+            <div class="facts">
+              ${fact('Surface', p.surface, true)}
+              ${fact('Restrooms', p.restrooms)}
+              ${fact('Benches', p.benches)}
+              ${fact('Shade', p.shade)}
+              ${fact('Comfort', p.comfort)}
+              ${fact('Parking', p.parking, true)}
+            </div>
+            ${p.verified ? '' : '<div class="d-note warn">Newly added — pending field verification. Details may change.</div>'}
+            ${p.fitness_court ? '<div class="d-note">Has a free, on-site Renown Health / National Fitness Campaign outdoor Fitness Court — a separate, more vigorous strength-training option.</div>' : ''}
+          </div>
+
+          <a class="btn-dir" target="_blank" href="${directionsURL(f)}">Get directions to parking</a>
+          <p class="d-fine">Verify current conditions before a visit.</p>
+        </div>`;
+    }
+
+    function openDetails(id) {
+      const f = parks.find((p) => p.properties.id === id);
+      if (!f) return;
+      details.innerHTML = detailsHTML(f);
+      details.scrollTop = 0;
+      details.classList.add('open');
+      details.setAttribute('aria-hidden', 'false');
+      history.pushState({ details: id }, '');   // so the phone's back gesture closes it
+    }
+
+    function hideDetails() {
+      details.classList.remove('open');
+      details.setAttribute('aria-hidden', 'true');
+    }
+
+    // Back arrow -> go back in history (which closes the page via popstate)
+    details.addEventListener('click', (e) => {
+      if (e.target.closest('.back')) history.back();
+    });
+    window.addEventListener('popstate', hideDetails);
+
+    // ===== 10. TAPS IN THE SHEET =====
+    // Park name or Details button -> details page
+    document.getElementById('featured').addEventListener('click', (e) => {
+      const t = e.target.closest('[data-details]');
+      if (t) openDetails(Number(t.dataset.details));
+    });
+
+    // In the list: name -> details page; anywhere else on the row -> fly to the park
+    document.getElementById('list').addEventListener('click', (e) => {
+      const t = e.target.closest('[data-details]');
+      if (t) return openDetails(Number(t.dataset.details));
+      const row = e.target.closest('.row');
+      if (row) selectPark(Number(row.dataset.id), true);
+    });
+
+    // ===== 11. LOAD PARKS + PINS =====
+    map.on('load', async () => {
+      const data = await (await fetch('parks.geojson', { cache: 'no-cache' })).json();
+
+      // Step 1: Give each park a simple "level" (Gentle, Steady…) for pin colors
+      data.features.forEach((f) => {
+        f.properties.level = levelOf(f.properties.comfort);
+      });
+      parks = data.features;
+
+      // Step 2: Add the parks as a clustered source
+      // Pins within 40px of each other merge into a group until zoom 13
+      map.addSource('parks', {
+        type: 'geojson',
+        data: data,
+        cluster: true,
+        clusterRadius: 40,
+        clusterMaxZoom: 13
+      });
+
+      // Step 3: Groups — white circle, grey outline, bigger for more parks
+      map.addLayer({
+        id: 'clusters',
+        type: 'circle',
+        source: 'parks',
+        filter: ['has', 'point_count'],
+        paint: {
+          'circle-color': '#ffffff',
+          'circle-stroke-color': GROUP_GREY,
+          'circle-stroke-width': 3,
+          'circle-radius': ['step', ['get', 'point_count'], 15, 5, 19, 10, 23]
+        }
+      });
+
+      // Step 4: The park count in the center of each group
+      map.addLayer({
+        id: 'cluster-count',
+        type: 'symbol',
+        source: 'parks',
+        filter: ['has', 'point_count'],
+        layout: {
+          'text-field': ['get', 'point_count'],
+          'text-font': ['Noto Sans Bold'],
+          'text-size': 14,
+          'text-allow-overlap': true,
+          'text-ignore-placement': true
+        },
+        paint: { 'text-color': GROUP_INK }
+      });
+
+      // Step 5: Single parks — white circle, outline colored by comfort level
+      map.addLayer({
+        id: 'park-points',
+        type: 'circle',
+        source: 'parks',
+        filter: ['!', ['has', 'point_count']],
+        paint: {
+          'circle-color': '#ffffff',
+          'circle-stroke-color': LEVEL_COLOR_EXPR,
+          'circle-stroke-width': 3,
+          'circle-radius': 8
+        }
+      });
+
+      // Step 6: The featured park — filled with its comfort color
+      map.addLayer({
+        id: 'park-selected',
+        type: 'circle',
+        source: 'parks',
+        filter: ['==', ['get', 'id'], -1],
+        paint: {
+          'circle-color': LEVEL_COLOR_EXPR,
+          'circle-stroke-color': '#ffffff',
+          'circle-stroke-width': 3,
+          'circle-radius': 11
+        }
+      });
+
+      // Step 7: Hide group numbers while zooming so they don't linger as artifacts
+      map.on('zoomstart', () => {
+        map.setLayoutProperty('cluster-count', 'visibility', 'none');
+      });
+      map.on('zoomend', () => {
+        map.setLayoutProperty('cluster-count', 'visibility', 'visible');
+      });
+
+      // Step 8: Tap a group -> zoom in until it splits apart
+      map.on('click', 'clusters', async (e) => {
+        const feature = e.features[0];
+        const zoom = await map.getSource('parks')
+          .getClusterExpansionZoom(feature.properties.cluster_id);
+        map.easeTo({ center: feature.geometry.coordinates, zoom: zoom });
+      });
+
+      // Step 9: Tap a single park -> feature it in the sheet
+      map.on('click', 'park-points', (e) => {
+        selectPark(e.features[0].properties.id, false);
+      });
+
+      // Step 10: Pointer cursor on desktop
+      for (const layer of ['clusters', 'park-points']) {
+        map.on('mouseenter', layer, () => map.getCanvas().style.cursor = 'pointer');
+        map.on('mouseleave', layer, () => map.getCanvas().style.cursor = '');
+      }
+
+      // Step 11: Fit all parks, leaving room for the sheet at the bottom
+      const bounds = new maplibregl.LngLatBounds();
+      parks.forEach((f) => bounds.extend(f.geometry.coordinates));
+      map.fitBounds(bounds, {
+        padding: { top: 60, left: 40, right: 60, bottom: header.offsetHeight + 40 },
+        animate: false
+      });
+      render();
+    });
+
+    // Refresh the list whenever the map stops moving
+    map.on('moveend', render);
+
+    setSheet(false);
+  </script>
+</body>
+</html>
