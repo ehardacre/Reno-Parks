@@ -1,0 +1,14 @@
+{
+  "name": "reno-parks",
+  "private": true,
+  "description": "Healing Steps: Reno-area parks and walking network",
+  "scripts": {
+    "build:network": "node scripts/build-network.js",
+    "test": "node --test test/*.test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "geotiff": "2.1.3",
+    "pngjs": "7.0.0"
+  }
+}
