@@ -41,6 +41,7 @@ test('name matching prefers the outline with the same distinctive words', () => 
   assert.equal(nameScore('Elm Park', 'Elm Park'), 1);
   assert.ok(nameScore('Elm Park', 'Elmwood Open Space') < 0.5);
   assert.equal(nameScore('Wingfield Park / Downtown Riverwalk', 'Downtown Riverwalk'), 1);
+  assert.ok(nameScore('Mormon Station State Historic Park', 'Mormon Station Historic State Monument') > 0.5);
 });
 
 test('a park matches its outline and picks segments mostly inside it', () => {
@@ -49,6 +50,13 @@ test('a park matches its outline and picks segments mostly inside it', () => {
   assert.deepEqual(m.osm, ['way/1']);
   assert.deepEqual(segmentsIn(m, ctx().segIndex).map((s) => s.id).sort(), ['1:0', '2:0', '3:0', '4:0']);
   assert.deepEqual(placesIn(m, [], places).map((p) => p.id).sort(), ['a', 'b', 'c']);
+});
+
+test('an outline sharing only half the distinctive words is not a match', () => {
+  const skate = box('way/3', 'Dayton Skate Park', [4000, 4000, 4100, 4100]);
+  const c = ctx();
+  const m = matchPark(park(4, 'Dayton State Park', 4050, 4050), { ...c, boundaries: [...boundaries, skate] });
+  assert.notEqual(m.method, 'outline');
 });
 
 test('trails match footpaths by name, never streets; otherwise a radius', () => {

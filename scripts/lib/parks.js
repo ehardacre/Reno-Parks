@@ -66,7 +66,8 @@ function matchPark(park, { boundaries, segIndex, byOsm, override }) {
   if (!override?.trail && !override?.radius_m) {
     const scored = boundaries
       .map((f) => ({ f, score: nameScore(park.properties.name, f.properties.name) }))
-      .filter((c) => c.score >= 0.5 && distanceTo(pin, rings(c.f)) <= NEAR_M);
+      // More than half: "Dayton State Park" vs "Dayton Skate Park" is exactly half.
+      .filter((c) => c.score > 0.5 && distanceTo(pin, rings(c.f)) <= NEAR_M);
     if (scored.length) {
       const best = Math.max(...scored.map((c) => c.score));
       const chosen = scored.filter((c) => c.score === best);

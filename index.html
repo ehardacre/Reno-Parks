@@ -205,6 +205,14 @@
     header.addEventListener('pointercancel', endDrag);
     window.addEventListener('resize', () => setSheet(expanded));
 
+    // Where the printed guide and OpenStreetMap disagreed, the guide now shows the OSM
+    // value until someone checks on the ground (field_check / guide_original in parks.geojson)
+    function fieldCheckNote(p) {
+      if (!p.field_check?.length) return '';
+      const words = p.field_check.map((k) => k.replace(/_/g, ' '));
+      return `Field check needed: the printed guide listed different ${words.join(' and ')} information than the map data shows.`;
+    }
+
     // ===== 5. PARK CARD HTML =====
     function cardHTML(f, full) {
       const p = f.properties;
@@ -223,6 +231,7 @@
               <span class="chip">Parking: ${p.parking}</span>
             </div>
             ${p.verified ? '' : '<div class="note pending">Newly added — pending field verification</div>'}
+            ${fieldCheckNote(p) ? `<div class="note pending">${fieldCheckNote(p)}</div>` : ''}
             ${p.fitness_court ? '<div class="note">Has a free outdoor Fitness Court</div>' : ''}
             <div class="actions">
               <button class="details-btn" data-details="${p.id}">Details</button>
@@ -375,6 +384,7 @@
               ${fact('Parking', p.parking, true)}
             </div>
             ${p.verified ? '' : '<div class="d-note warn">Newly added — pending field verification. Details may change.</div>'}
+            ${fieldCheckNote(p) ? `<div class="d-note warn">${fieldCheckNote(p)} We're checking on the ground.</div>` : ''}
             ${p.fitness_court ? '<div class="d-note">Has a free, on-site Renown Health / National Fitness Campaign outdoor Fitness Court — a separate, more vigorous strength-training option.</div>' : ''}
           </div>
 
